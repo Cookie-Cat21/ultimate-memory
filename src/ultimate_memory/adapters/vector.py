@@ -56,7 +56,7 @@ class VectorAdapter:
             self._embedding_model = TextEmbedding(model_name=self.retrieval.embedding_model)
         return [list(vector) for vector in self._embedding_model.embed(texts)]
 
-    def upsert_chunks(self, chunks: Iterable[MemoryChunk], batch_size: int = 32) -> int:
+    def upsert_chunks(self, chunks: Iterable[MemoryChunk], batch_size: int = 16) -> int:
         chunk_list = list(chunks)
         if not chunk_list or not self.ensure_collection():
             return 0
@@ -90,15 +90,38 @@ class VectorAdapter:
             total += len(points)
         return total
 
-    def search(self, query: str, limit: int = 8) -> list[SearchResult]:
+    def search(
+        self,
+        query: str,
+        limit: int = 8,
+        tags: list[str] | None = None,
+        memory_types: list[str] | None = None,
+    ) -> list[SearchResult]:
         if not query.strip() or not self.ensure_collection():
             return []
         vector = self.embed([query])[0]
+
+        conditions: list[qmodels.FieldCondition] = []
+        if tags:
+            conditions.extend(
+                qmodels.FieldCondition(key="tags", match=qmodels.MatchValue(value=tag))
+                for tag in tags
+            )
+        if memory_types:
+            conditions.append(
+                qmodels.FieldCondition(
+                    key="memory_type",
+                    match=qmodels.MatchAny(any=memory_types),
+                )
+            )
+        query_filter = qmodels.Filter(must=conditions) if conditions else None
+
         response = self.client().query_points(
             collection_name=self.retrieval.collection_name,
             query=vector,
             limit=limit,
             with_payload=True,
+            query_filter=query_filter,
         )
         results: list[SearchResult] = []
         for point in response.points:

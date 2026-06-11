@@ -1,34 +1,17 @@
+# Claude Code SessionEnd hook — ingests the session transcript into Ultimate Memory.
+# Claude Code sends a JSON payload on stdin: {session_id, transcript_path, project_path, ...}
+# This script pipes that into ingest_session.py which calls the MemoryRouter.
 $ErrorActionPreference = "SilentlyContinue"
 
-$repo = "C:\Users\Ovindu\Documents\Pet Projects\ultimate-memory"
-$hookInput = [Console]::In.ReadToEnd()
+$repoRoot = "C:\Users\Ovindu\Documents\Pet Projects\ultimate-memory"
+$scriptPath = Join-Path $repoRoot "scripts\ingest_session.py"
 
-if ([string]::IsNullOrWhiteSpace($hookInput)) {
+# Read stdin from the hook payload
+$stdinData = [Console]::In.ReadToEnd()
+
+if (-not $stdinData.Trim()) {
     exit 0
 }
 
-try {
-    $event = $hookInput | ConvertFrom-Json
-} catch {
-    exit 0
-}
-
-$sessionId = if ($event.session_id) { [string]$event.session_id } else { "claude-session" }
-$transcriptPath = if ($event.transcript_path) { [string]$event.transcript_path } else { "" }
-$cwd = if ($event.cwd) { [string]$event.cwd } else { "" }
-
-if ([string]::IsNullOrWhiteSpace($transcriptPath) -or -not (Test-Path -LiteralPath $transcriptPath)) {
-    exit 0
-}
-
-Push-Location $repo
-try {
-    if ([string]::IsNullOrWhiteSpace($cwd)) {
-        uv run ultimate-memory ingest-log claude $sessionId $transcriptPath --tags claude --tags hook *> $null
-    } else {
-        uv run ultimate-memory ingest-log claude $sessionId $transcriptPath --project-path $cwd --tags claude --tags hook *> $null
-    }
-} finally {
-    Pop-Location
-}
-
+# Pipe through uv run python
+$stdinData | & uv --directory $repoRoot run python $scriptPath 2>&1 | Out-Null

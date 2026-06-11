@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import concurrent.futures
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -11,6 +13,12 @@ from .chunking import chunk_text
 from .config import Settings, load_settings
 from .models import AuditEvent, MemoryChunk, MemoryType, ReflectionPayload, SearchResult, safe_slug
 from .store import LocalStore
+
+# Phrases that signal extractable knowledge in session transcripts.
+_DECISION_SIGNALS = ("decided to", "decision:", "we chose", "going with", "will use", "switching to", "the approach is")
+_PREFERENCE_SIGNALS = ("prefer ", "preference:", "always ", "never ", "i like", "i don't like", "i want", "please avoid")
+_PROCEDURE_SIGNALS = ("steps:", "to do:", "procedure:", "how to ", "the process is", "to fix this")
+_FACT_SIGNALS = ("the fix was", "the issue was", "root cause", "turns out", "note that", "important:", "the problem is", "bug:")
 
 
 class MemoryRouter:
@@ -90,27 +98,49 @@ class MemoryRouter:
         project_path: str | None = None,
         memory_types: list[str] | None = None,
         limit: int | None = None,
+        tags: list[str] | None = None,
     ) -> dict:
         actual_limit = limit or self.settings.retrieval.default_limit
-        vector_results = self.vector.search(query, actual_limit) if self._vector_ready else []
-        bm_results = self.basic.search(query, actual_limit, include_cli=False)
-        keyword_rows = self.store.keyword_search(query, actual_limit)
-        keyword_results = [
-            SearchResult(
-                id=row["id"],
-                title=row["title"],
-                text=row["text"],
-                source_path=row["source_path"],
-                memory_type=row["memory_type"],
-                score=self._keyword_score(query, row["text"]),
-                provenance={"source": "sqlite-fts"},
-            )
-            for row in keyword_rows
-        ]
-        graph_hits = self.graph.query(query, depth=1) if self._graph_ready else []
 
-        results = self._rank_results(
-            [*vector_results, *keyword_results, *bm_results],
+        # --- run all four sources in parallel --------------------------------
+        def _vector():
+            return self.vector.search(
+                query, actual_limit, tags=tags, memory_types=memory_types
+            ) if self._vector_ready else []
+
+        def _keyword():
+            rows = self.store.keyword_search(query, actual_limit)
+            return [
+                SearchResult(
+                    id=row["id"],
+                    title=row["title"],
+                    text=row["text"],
+                    source_path=row["source_path"],
+                    memory_type=row["memory_type"],
+                    score=self._keyword_score(query, row["text"]),
+                    provenance={"source": "sqlite-fts"},
+                )
+                for row in rows
+            ]
+
+        def _basic():
+            return self.basic.search(query, actual_limit, include_cli=False)
+
+        def _graph():
+            return self.graph.query(query, depth=1) if self._graph_ready else []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            fv = pool.submit(_vector)
+            fk = pool.submit(_keyword)
+            fb = pool.submit(_basic)
+            fg = pool.submit(_graph)
+            vector_results: list[SearchResult] = fv.result()
+            keyword_results: list[SearchResult] = fk.result()
+            bm_results: list[SearchResult] = fb.result()
+            graph_hits: list[dict] = fg.result()
+
+        results = self._rrf_rank(
+            [vector_results, keyword_results, bm_results],
             memory_types=memory_types,
             limit=actual_limit,
         )
@@ -136,7 +166,7 @@ class MemoryRouter:
             search_result = self.search(query, project_path=project_path, limit=5)
             collected.extend(SearchResult(**item) for item in search_result["results"])
 
-        ranked = self._rank_results(collected, limit=12)
+        ranked = self._rrf_rank([collected], limit=12)
         packet = self._fit_budget(ranked, self.settings.retrieval.bootstrap_token_budget_chars)
         return {
             "task": task,
@@ -209,6 +239,16 @@ class MemoryRouter:
             )
         vector_count = self.vector.upsert_chunks(chunks) if self._vector_ready else 0
         graph_count = self.graph.upsert_chunks(chunks) if self._graph_ready else 0
+
+        # --- auto-extract learnings and reflect them into durable memory -----
+        reflection_result: dict | None = None
+        reflection_payload = self._extract_reflection(source_text, session_id, project_path)
+        if reflection_payload is not None:
+            try:
+                reflection_result = self.reflect(reflection_payload)
+            except Exception:
+                pass
+
         self.store.write_audit(
             AuditEvent(
                 action="ingest_log",
@@ -219,6 +259,7 @@ class MemoryRouter:
                     "chunks": len(chunks),
                     "qdrant_chunks": vector_count,
                     "graph_chunks": graph_count,
+                    "auto_reflected": reflection_result is not None,
                 },
             )
         )
@@ -227,6 +268,7 @@ class MemoryRouter:
             "chunks": len(chunks),
             "qdrant_chunks": vector_count,
             "graph_chunks": graph_count,
+            "reflection": reflection_result,
         }
 
     def reflect(self, payload: ReflectionPayload) -> dict:
@@ -366,22 +408,124 @@ class MemoryRouter:
             "indexed_sources": list(self.store.all_indexed_sources())[:100],
         }
 
-    def _rank_results(
+    # ------------------------------------------------------------------
+    # Ranking
+    # ------------------------------------------------------------------
+
+    def _rrf_rank(
         self,
-        results: list[SearchResult],
+        result_lists: list[list[SearchResult]],
         memory_types: list[str] | None = None,
         limit: int | None = None,
     ) -> list[SearchResult]:
+        """Reciprocal Rank Fusion across multiple independently-ranked result lists.
+
+        Each list is treated as an independent ranking signal.  A result that
+        appears highly in multiple lists gets a boosted fused score.  Scores are
+        normalised to [0, 1] before returning so they stay comparable regardless
+        of how many lists contributed.
+        """
+        k = 60  # standard RRF constant
         allowed = set(memory_types or [])
-        filtered = [result for result in results if not allowed or result.memory_type in allowed]
-        deduped: dict[str, SearchResult] = {}
-        for result in filtered:
-            key = result.source_path or result.id
-            existing = deduped.get(key)
-            if existing is None or result.score > existing.score:
-                deduped[key] = result
-        ranked = sorted(deduped.values(), key=lambda result: result.score, reverse=True)
-        return ranked[: limit or self.settings.retrieval.default_limit]
+
+        rrf_scores: dict[str, float] = {}
+        best_result: dict[str, SearchResult] = {}
+
+        for result_list in result_lists:
+            for rank, result in enumerate(result_list):
+                if allowed and result.memory_type not in allowed:
+                    continue
+                key = result.source_path or result.id
+                rrf_scores[key] = rrf_scores.get(key, 0.0) + 1.0 / (k + rank + 1)
+                if key not in best_result or result.score > best_result[key].score:
+                    best_result[key] = result
+
+        # Normalise to [0, 1]
+        if rrf_scores:
+            max_score = max(rrf_scores.values())
+            if max_score > 0:
+                for key in rrf_scores:
+                    rrf_scores[key] /= max_score
+
+        fused: list[SearchResult] = []
+        for key, result in best_result.items():
+            result.provenance["raw_score"] = result.score
+            result.provenance["rrf_score"] = rrf_scores[key]
+            result.score = rrf_scores[key]
+            fused.append(result)
+
+        fused.sort(key=lambda r: r.score, reverse=True)
+        return fused[: limit or self.settings.retrieval.default_limit]
+
+    # ------------------------------------------------------------------
+    # Smart extraction from session transcripts
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_reflection(
+        text: str,
+        session_id: str,
+        project_path: str | None,
+    ) -> ReflectionPayload | None:
+        """Parse a transcript for high-signal phrases and build a ReflectionPayload.
+
+        Returns None when the transcript doesn't contain enough signal to be
+        worth auto-reflecting (avoids polluting Obsidian with noise).
+        """
+        facts: list[str] = []
+        decisions: list[str] = []
+        preferences: list[str] = []
+        procedures: list[str] = []
+
+        seen: set[str] = set()
+
+        def _add(bucket: list[str], line: str) -> None:
+            norm = re.sub(r"\s+", " ", line.strip())[:220]
+            if norm and norm not in seen and len(norm) >= 20:
+                seen.add(norm)
+                bucket.append(norm)
+
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            lower = line.lower()
+
+            if any(sig in lower for sig in _DECISION_SIGNALS):
+                _add(decisions, line)
+            elif any(sig in lower for sig in _PREFERENCE_SIGNALS):
+                _add(preferences, line)
+            elif any(sig in lower for sig in _PROCEDURE_SIGNALS):
+                _add(procedures, line)
+            elif any(sig in lower for sig in _FACT_SIGNALS):
+                _add(facts, line)
+
+        # Cap per category to avoid runaway reflections
+        facts = facts[:6]
+        decisions = decisions[:6]
+        preferences = preferences[:4]
+        procedures = procedures[:4]
+
+        total_signals = len(facts) + len(decisions) + len(preferences) + len(procedures)
+        if total_signals < 1:
+            return None
+
+        project_name = Path(project_path).name if project_path else "session"
+        summary = (
+            f"Auto-extracted from {project_name} session {session_id[:20]}. "
+            f"{total_signals} signals: {len(decisions)} decisions, {len(facts)} facts, "
+            f"{len(preferences)} preferences, {len(procedures)} procedures."
+        )
+        return ReflectionPayload(
+            summary=summary,
+            facts=facts,
+            decisions=decisions,
+            preferences=preferences,
+            procedures=procedures,
+            source_refs=[f"session:{session_id}"],
+        )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _keyword_score(query: str, text: str) -> float:
@@ -392,7 +536,7 @@ class MemoryRouter:
         score = 0.55 + min(term_hits * 0.06, 0.3)
         if needle and needle in haystack:
             score += 0.25
-        return min(score, 1.2)
+        return min(score, 1.0)
 
     @staticmethod
     def _fit_budget(results: list[SearchResult], budget_chars: int) -> list[dict]:
