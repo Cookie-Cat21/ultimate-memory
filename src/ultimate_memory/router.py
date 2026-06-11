@@ -245,7 +245,7 @@ class MemoryRouter:
         reflection_payload = self._extract_reflection(source_text, session_id, project_path)
         if reflection_payload is not None:
             try:
-                reflection_result = self.reflect(reflection_payload)
+                reflection_result = self.reflect(reflection_payload, project_path=project_path)
             except Exception:
                 pass
 
@@ -271,10 +271,19 @@ class MemoryRouter:
             "reflection": reflection_result,
         }
 
-    def reflect(self, payload: ReflectionPayload) -> dict:
-        title = f"Memory Reflection {datetime.now(UTC).strftime('%Y-%m-%d %H%M%S')}"
+    def reflect(self, payload: ReflectionPayload, project_path: str | None = None) -> dict:
+        timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H%M%S")
+        title = self._smart_title(payload, timestamp)
         folder = "research/agent-memory/reflections"
-        content = self._reflection_markdown(title, payload)
+
+        # Discover vault entities to auto-link
+        note_titles = [p.stem for p in self.basic.iter_markdown_files()]
+        reflection_text = " ".join(
+            payload.facts + payload.decisions + payload.preferences + payload.procedures
+        )
+        entity_links = self._entity_links(reflection_text, note_titles)
+
+        content = self._reflection_markdown(title, payload, project_path=project_path, entity_links=entity_links)
         duplicate_hits = self.search(payload.summary, limit=5)["results"]
         confidence = self._confidence(payload, duplicate_hits)
         should_write = confidence >= 0.55
@@ -563,7 +572,62 @@ class MemoryRouter:
         return transcript_or_path, "inline"
 
     @staticmethod
-    def _reflection_markdown(title: str, payload: ReflectionPayload) -> str:
+    def _smart_title(payload: ReflectionPayload, timestamp: str) -> str:
+        """Derive a meaningful, filesystem-safe title from the first decision or fact."""
+        first_signal = (
+            next(iter(payload.decisions), None)
+            or next(iter(payload.facts), None)
+            or next(iter(payload.preferences), None)
+        )
+        if not first_signal:
+            return f"Memory Reflection {timestamp}"
+        # Strip role prefixes like "Assistant: " or "User: "
+        clean = re.sub(r"^(assistant|user|system)\s*:\s*", "", first_signal, flags=re.IGNORECASE)
+        truncated = clean[:72].rstrip()
+        # Remove chars illegal in Windows/macOS filenames
+        safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", truncated).strip("-").strip()
+        return safe or f"Memory Reflection {timestamp}"
+
+    @staticmethod
+    def _entity_links(text: str, note_titles: list[str]) -> list[str]:
+        """Return vault note titles that are mentioned in *text* (case-insensitive).
+
+        Skips very short or generic titles to avoid false matches.
+        """
+        text_lower = text.lower()
+        matched: list[str] = []
+        for title in note_titles:
+            if len(title) < 4:
+                continue
+            # Skip timestamped reflection notes — they're not useful link targets
+            if re.match(r"Memory Reflection \d", title):
+                continue
+            if title.lower() in text_lower:
+                matched.append(title)
+        # Deduplicate preserving order
+        seen: set[str] = set()
+        unique: list[str] = []
+        for t in matched:
+            if t not in seen:
+                seen.add(t)
+                unique.append(t)
+        return unique[:8]  # cap to keep Relations section readable
+
+    @staticmethod
+    def _reflection_markdown(
+        title: str,
+        payload: ReflectionPayload,
+        project_path: str | None = None,
+        entity_links: list[str] | None = None,
+    ) -> str:
+        relations = ["- relates_to [[Shared Claude Codex Agentic Memory Goal]]"]
+        if project_path:
+            project_name = Path(project_path).name
+            if project_name:
+                relations.append(f"- from_project [[{project_name}]]")
+        for entity in (entity_links or []):
+            relations.append(f"- mentions [[{entity}]]")
+
         sections = [
             f"# {title}",
             "",
@@ -588,7 +652,7 @@ class MemoryRouter:
             *(f"- {item}" for item in payload.source_refs),
             "",
             "## Relations",
-            "- relates_to [[Shared Claude Codex Agentic Memory Goal]]",
+            *relations,
         ]
         return "\n".join(sections).strip() + "\n"
 
