@@ -1,0 +1,50 @@
+name: ultimate-memory
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.15.4
+    container_name: ultimate-memory-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: ultimate-memory-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/ultimate-memory-dev
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 512m
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+
+  memory-router:
+    build: .
+    container_name: ultimate-memory-router
+    profiles:
+      - router
+    environment:
+      ULTIMATE_MEMORY_CONFIG: /app/config/docker.toml
+      ULTIMATE_MEMORY_MCP_HOST: 0.0.0.0
+      ULTIMATE_MEMORY_MCP_PORT: "8788"
+      ULTIMATE_MEMORY_TRANSPORT: streamable-http
+    ports:
+      - "8788:8788"
+    volumes:
+      - "C:\\Users\\Ovindu\\basic-memory:/vault"
+      - "./.ultimate-memory:/app/.ultimate-memory"
+    depends_on:
+      - qdrant
+      - neo4j
+
+volumes:
+  qdrant_data:
+  neo4j_data:
+  neo4j_logs:

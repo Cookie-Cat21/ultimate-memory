@@ -1,0 +1,29 @@
+[paths]
+repo_root = "/app"
+basic_memory_vault = "/vault"
+private_store = "/app/.ultimate-memory"
+
+[retrieval]
+collection_name = "ultimate_memory_chunks"
+embedding_model = "BAAI/bge-small-en-v1.5"
+chunk_chars = 1200
+chunk_overlap = 160
+default_limit = 8
+bootstrap_token_budget_chars = 12000
+
+[qdrant]
+url = "http://qdrant:6333"
+
+[neo4j]
+uri = "bolt://neo4j:7687"
+user = "neo4j"
+password = "ultimate-memory-dev"
+
+[basic_memory]
+project = "main"
+cli = "basic-memory"
+
+[dashboard]
+host = "0.0.0.0"
+port = 8787
+

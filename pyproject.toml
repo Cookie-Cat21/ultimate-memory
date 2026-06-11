@@ -1,0 +1,44 @@
+[project]
+name = "ultimate-memory"
+version = "0.1.0"
+description = "Local-first MCP memory router for Claude Code and Codex."
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "fastapi>=0.116.0",
+    "fastembed>=0.7.0",
+    "httpx>=0.28.0",
+    "jinja2>=3.1.0",
+    "mcp>=1.11.0",
+    "neo4j>=5.28.0",
+    "pydantic>=2.10.0",
+    "qdrant-client>=1.14.0",
+    "rich>=14.0.0",
+    "typer>=0.16.0",
+    "uvicorn>=0.35.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.0",
+    "pytest-cov>=6.2.0",
+    "ruff>=0.12.0",
+]
+
+[project.scripts]
+ultimate-memory-router = "ultimate_memory.server:main"
+ultimate-memory = "ultimate_memory.cli:app"
+ultimate-memory-dashboard = "ultimate_memory.dashboard.app:main"
+
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
