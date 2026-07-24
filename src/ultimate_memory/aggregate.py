@@ -1945,6 +1945,92 @@ def merge_list_answers(*answers: str | None, limit: int = 10) -> str | None:
     return ", ".join(items[:limit])
 
 
+def filter_list_items_for_question(question: str, items: list[str], *, head: str | None = None) -> list[str]:
+    """Drop list items that are unlikely to belong to the question head.
+
+    Noisy harvest∪LLM merges were destroying multi-hop token F1 precision on
+    later LoCoMo dialogs; keep short items and head-overlapping ones.
+    """
+    if not items:
+        return []
+    q_lower = question.lower()
+    head_l = (head or "").lower()
+    head_terms = {
+        t
+        for t in re.findall(r"[a-z]{3,}", f"{head_l} {q_lower}")
+        if t
+        not in {
+            "what",
+            "which",
+            "where",
+            "who",
+            "how",
+            "has",
+            "have",
+            "did",
+            "does",
+            "the",
+            "and",
+            "for",
+            "with",
+            "from",
+            "that",
+            "this",
+            "are",
+            "was",
+            "were",
+            "been",
+            "made",
+            "done",
+            "taken",
+            "played",
+            "visited",
+            "favorite",
+            "names",
+            "name",
+            "types",
+            "type",
+            "kind",
+            "kinds",
+        }
+    }
+    # Place/name questions: prefer proper-noun-ish short spans.
+    place_mode = bool(
+        re.search(r"\b(?:cities|countries|states|places|locations|areas|where)\b", q_lower)
+    )
+    name_mode = bool(re.search(r"\bnames?\b", q_lower))
+
+    kept: list[str] = []
+    for item in items:
+        cleaned = item.strip(" .,;:-\"'")
+        if len(cleaned) < 2 or len(cleaned) > 40:
+            continue
+        # Drop sentence-like junk.
+        if cleaned.count(" ") >= 6:
+            continue
+        lower = cleaned.lower()
+        if lower in _NAME_BLOCKLIST:
+            continue
+        words = re.findall(r"[a-z]{3,}", lower)
+        if place_mode or name_mode:
+            if re.match(r"^[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?$", cleaned) or len(words) <= 3:
+                kept.append(cleaned)
+            continue
+        if head_terms and words:
+            if head_terms & set(words) or any(
+                any(h.startswith(w) or w.startswith(h) for h in head_terms) for w in words
+            ):
+                kept.append(cleaned)
+                continue
+            # Allow short proper nouns / canon tokens even without overlap.
+            if len(words) <= 2 and re.search(r"[A-Z]", cleaned):
+                kept.append(cleaned)
+                continue
+            continue
+        kept.append(cleaned)
+    return kept[:12]
+
+
 def build_speaker_inventories(speaker: str, fact_texts: list[str]) -> list[str]:
     """Create compact inventory memory lines for a speaker from observation texts."""
     inventories: list[str] = []

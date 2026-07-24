@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from ultimate_memory.aggregate import aggregate_answer, build_speaker_inventories, detect_aggregate_intent
+from ultimate_memory.aggregate import (
+    aggregate_answer,
+    build_speaker_inventories,
+    detect_aggregate_intent,
+    filter_list_items_for_question,
+)
 from ultimate_memory.answer import tokenize_f1
 
 
@@ -184,3 +189,23 @@ class TestListUnionIntent:
         )
         assert intent is not None
         assert intent.kind == "entity_infer"
+
+    def test_case_insensitive_list_shape(self):
+        intent = detect_aggregate_intent("What writing classes has Maria taken?")
+        assert intent is not None
+        assert intent.kind == "inventory_union"
+
+    def test_filter_list_items_drops_junk(self):
+        kept = filter_list_items_for_question(
+            "What desserts has Maria made?",
+            [
+                "Banana split sundae",
+                "Peach cobbler",
+                "tech issues workplace hurdles self-doubt on his path to promotion",
+                "giving out food at a homeless shelter",
+            ],
+            head="desserts",
+        )
+        assert "Banana split sundae" in kept
+        assert "Peach cobbler" in kept
+        assert all("tech issues" not in x for x in kept)

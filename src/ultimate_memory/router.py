@@ -35,6 +35,7 @@ from .models import (
 from .aggregate import (
     aggregate_answer,
     detect_aggregate_intent,
+    filter_list_items_for_question,
     harvest_list_items,
     merge_list_answers,
 )
@@ -597,21 +598,57 @@ class MemoryRouter:
 
                 answerer = get_local_answerer()
                 if should_list_answer:
-                    llm_list = answerer.answer_list(question, context_texts)
                     head = (agg_intent.topic if agg_intent else None) or question
-                    harvested = harvest_list_items(
-                        head,
-                        person_atom_texts or context_texts,
-                        person=agg_intent.person if agg_intent else None,
+                    # Prefer head-relevant contexts for the list LLM (less junk).
+                    head_terms = [
+                        t
+                        for t in re.findall(r"[a-z]{3,}", str(head).lower())
+                        if t not in {"what", "which", "where", "the", "and", "has", "have"}
+                    ]
+                    focused_contexts = [
+                        t
+                        for t in context_texts
+                        if not head_terms or any(term in t.lower() for term in head_terms)
+                    ] or context_texts
+                    harvested = filter_list_items_for_question(
+                        question,
+                        harvest_list_items(
+                            head,
+                            person_atom_texts or focused_contexts,
+                            person=agg_intent.person if agg_intent else None,
+                        ),
+                        head=str(head),
                     )
                     harvest_text = ", ".join(harvested) if harvested else None
-                    answer_text = (
-                        merge_list_answers(aggregated, harvest_text, llm_list, limit=10)
-                        or llm_list
-                        or harvest_text
-                        or aggregated
-                        or ""
-                    )
+                    # High-precision path: clean harvest (≥2) wins without LLM merge.
+                    if len(harvested) >= 2:
+                        answer_text = (
+                            merge_list_answers(aggregated, harvest_text, limit=8)
+                            or harvest_text
+                        )
+                    else:
+                        llm_list = answerer.answer_list(question, focused_contexts[:20])
+                        llm_items = filter_list_items_for_question(
+                            question,
+                            [
+                                p.strip()
+                                for p in llm_list.replace(" and ", ", ").split(",")
+                                if p.strip()
+                            ]
+                            if llm_list
+                            else [],
+                            head=str(head),
+                        )
+                        llm_clean = ", ".join(llm_items) if llm_items else None
+                        answer_text = (
+                            merge_list_answers(
+                                aggregated, harvest_text, llm_clean, limit=8
+                            )
+                            or llm_clean
+                            or harvest_text
+                            or aggregated
+                            or ""
+                        )
                 else:
                     answer_text = answerer.answer(question, context_texts)
             except Exception as exc:
@@ -633,13 +670,19 @@ class MemoryRouter:
         else:
             if should_list_answer:
                 head = (agg_intent.topic if agg_intent else None) or question
-                harvested = harvest_list_items(
-                    head,
-                    person_atom_texts or retrieved_texts,
-                    person=agg_intent.person if agg_intent else None,
+                harvested = filter_list_items_for_question(
+                    question,
+                    harvest_list_items(
+                        head,
+                        person_atom_texts or retrieved_texts,
+                        person=agg_intent.person if agg_intent else None,
+                    ),
+                    head=str(head),
                 )
                 answer_text = (
-                    merge_list_answers(aggregated, ", ".join(harvested) if harvested else None, limit=10)
+                    merge_list_answers(
+                        aggregated, ", ".join(harvested) if harvested else None, limit=8
+                    )
                     or aggregated
                     or synthesize_answer(question, rich_contexts)
                 )
