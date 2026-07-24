@@ -28,7 +28,7 @@ Overall token F1 **36.0** (adversarial skipped).
 
 | Model | single | multi | temporal | open |
 |---|---:|---:|---:|---:|
-| `flan-t5-xl` | 33.5 | **66.2** | 22.5 | **96.2** |
+| `flan-t5-xl` | 34.0 | **69.8** | 25.2 | **96.2** |
 
 ## Synthetic suite
 
