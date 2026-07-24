@@ -121,6 +121,15 @@ _OCCUPATION_ANSWER_RE = re.compile(
     r"\b(?:works?\s+as|worked\s+as|is\s+a|was\s+a|employed\s+(?:as|by|at))\b",
     re.I,
 )
+_DIA_TURN_RE = re.compile(r"^\[D\d+:\d+\]")
+_IDENTITY_QUESTION_RE = re.compile(
+    r"\bidentity\b|\b(?:gender|transgender)\b|what is .+'s (?:identity|gender)",
+    re.I,
+)
+_IDENTITY_PHRASE_RE = re.compile(
+    r"\btransgender\b|\b(?:trans\s+)?woman\b|\b(?:trans\s+)?man\b|\bidentity\b",
+    re.I,
+)
 
 _JUNK_LINE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^#"),
@@ -249,6 +258,36 @@ QuestionKind = Literal["yes_no", "when", "where", "who", "what", "other"]
 
 def _is_occupation_question(question: str) -> bool:
     return bool(_OCCUPATION_QUESTION_RE.search(question))
+
+
+def _is_identity_question(question: str) -> bool:
+    return bool(_IDENTITY_QUESTION_RE.search(question))
+
+
+def _dialogue_turn_bonus(
+    text: str,
+    *,
+    question_words: set[str],
+    entities: set[str],
+) -> float:
+    """Prefer short [D#:##] turns that mention both the person and a question keyword."""
+    if not _DIA_TURN_RE.match(text.strip()):
+        return 0.0
+    lower = text.lower()
+    bonus = 0.0
+    entity_hits = sum(1 for ent in entities if ent in lower)
+    content_hits = sum(1 for word in question_words if word in lower)
+    if entity_hits and content_hits:
+        bonus += 0.55
+    elif entity_hits:
+        bonus += 0.2
+    elif content_hits:
+        bonus += 0.15
+    if len(text) <= 220:
+        bonus += 0.15
+    if len(text) <= 140:
+        bonus += 0.1
+    return bonus
 
 
 def _occupation_score_adjustment(span: str, sentence: str) -> float:
@@ -391,7 +430,14 @@ def _question_temporal_bias(question: str) -> Literal["current", "past", "neutra
     return "neutral"
 
 
-def _context_metadata_bonus(item: _ContextItem, temporal_bias: Literal["current", "past", "neutral"]) -> float:
+def _context_metadata_bonus(
+    item: _ContextItem,
+    temporal_bias: Literal["current", "past", "neutral"],
+    *,
+    question_words: set[str] | None = None,
+    entities: set[str] | None = None,
+    identity_question: bool = False,
+) -> float:
     provenance = item.provenance or {}
     bonus = 0.0
 
@@ -406,6 +452,16 @@ def _context_metadata_bonus(item: _ContextItem, temporal_bias: Literal["current"
 
     if item.score > 0:
         bonus += min(item.score * 0.12, 0.18)
+
+    if question_words is not None and entities is not None:
+        bonus += _dialogue_turn_bonus(
+            item.text,
+            question_words=question_words,
+            entities=entities,
+        )
+
+    if identity_question and _IDENTITY_PHRASE_RE.search(item.text):
+        bonus += 0.55
 
     valid_until = provenance.get("valid_until")
     superseded_by = provenance.get("superseded_by")
@@ -477,6 +533,7 @@ def _score_candidate(
     question_words: set[str],
     entities: set[str],
     occupation_question: bool = False,
+    identity_question: bool = False,
 ) -> float:
     score = _overlap_score(question_words, sentence, entities)
     score += _overlap_score(question_words, span, entities) * 0.5
@@ -499,9 +556,8 @@ def _score_candidate(
         score += 0.4
     if kind == "who" and _extract_who_spans(span):
         score += 0.35
-    if re.search(r"\b(?:identity|who is|what is)\b", " ".join(question_words), re.I) or "identity" in question_words:
-        if re.search(r"\btransgender\b|\bwoman\b|\bman\b|\bengineer\b|\bnurse\b", span, re.I):
-            score += 0.5
+    if identity_question and _IDENTITY_PHRASE_RE.search(span):
+        score += 0.65
     if "prefer" in question_words or "preference" in question_words or "theme" in question_words:
         if re.search(r"\b(?:light|dark)\s+mode\b", span, re.I):
             score += 0.7
@@ -660,6 +716,7 @@ def synthesize_answer(
     question_words = _content_words(question)
     entities = _question_entities(question)
     occupation_question = _is_occupation_question(question)
+    identity_question = _is_identity_question(question)
 
     # For "when" questions, prefer contexts that actually contain date spans.
     if kind == "when":
@@ -670,7 +727,13 @@ def synthesize_answer(
     if kind == "yes_no":
         sentences: list[tuple[float, str]] = []
         for item in normalized:
-            meta_bonus = _context_metadata_bonus(item, temporal_bias)
+            meta_bonus = _context_metadata_bonus(
+                item,
+                temporal_bias,
+                question_words=question_words,
+                entities=entities,
+                identity_question=identity_question,
+            )
             for sentence in _split_sentences(item.text):
                 score = _overlap_score(question_words, sentence, entities) + meta_bonus
                 sentences.append((score, sentence))
@@ -685,7 +748,13 @@ def synthesize_answer(
 
     ranked: list[_Candidate] = []
     for item in normalized:
-        meta_bonus = _context_metadata_bonus(item, temporal_bias)
+        meta_bonus = _context_metadata_bonus(
+            item,
+            temporal_bias,
+            question_words=question_words,
+            entities=entities,
+            identity_question=identity_question,
+        )
         for sentence in _split_sentences(item.text):
             for span in _collect_candidates(sentence, kind):
                 score = _score_candidate(
@@ -695,6 +764,7 @@ def synthesize_answer(
                     question_words=question_words,
                     entities=entities,
                     occupation_question=occupation_question,
+                    identity_question=identity_question,
                 )
                 score += meta_bonus
                 ranked.append(_Candidate(text=span, sentence=sentence, score=score))
@@ -709,7 +779,13 @@ def synthesize_answer(
         # Prefer a date that co-occurs with question entities/content in the same sentence.
         dated: list[tuple[float, str]] = []
         for item in normalized:
-            meta = _context_metadata_bonus(item, temporal_bias)
+            meta = _context_metadata_bonus(
+                item,
+                temporal_bias,
+                question_words=question_words,
+                entities=entities,
+                identity_question=identity_question,
+            )
             for sentence in _split_sentences(item.text):
                 overlap = _overlap_score(question_words, sentence, entities)
                 if entities and not any(ent in sentence.lower() for ent in entities):

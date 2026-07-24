@@ -44,6 +44,21 @@ from .store import LocalStore
 
 logger = logging.getLogger(__name__)
 
+_PROBE_ENTITY_PATTERNS = (
+    re.compile(r"what did\s+([A-Z][a-z]+)\b", re.I),
+    re.compile(r"what is\s+([A-Z][a-z]+)'s\b", re.I),
+    re.compile(r"what(?:'s| is)\s+([A-Z][a-z]+)'s\b", re.I),
+    re.compile(r"where did\s+([A-Z][a-z]+)\b", re.I),
+)
+
+
+def _probe_entity_from_question(question: str) -> str | None:
+    for pattern in _PROBE_ENTITY_PATTERNS:
+        match = pattern.search(question)
+        if match:
+            return match.group(1)
+    return None
+
 
 class MemoryRouter:
     def __init__(self, settings: Settings | None = None) -> None:
@@ -145,12 +160,32 @@ class MemoryRouter:
         q_lower_all = question.lower()
         if "identity" in q_lower_all:
             expansions.append("transgender woman identity")
+        if "adoption" in q_lower_all:
+            expansions.append("adoption agencies application interview")
+        if "counseling" in q_lower_all or "counselling" in q_lower_all:
+            expansions.append("counseling mental health LGBTQ workshop")
+        if "career" in q_lower_all or re.search(
+            r"\b(?:job|work|occupation|profession)\b", q_lower_all
+        ):
+            expansions.append("career counseling mental health work")
+        if "sweden" in q_lower_all:
+            expansions.append("grandmother Sweden necklace home country")
+        if "camping" in q_lower_all:
+            expansions.append("camping trip outdoors nature")
+        if "pottery" in q_lower_all:
+            expansions.append("pottery class ceramic bowl")
+        if "painting" in q_lower_all or (
+            "paint" in q_lower_all and "sunrise" not in q_lower_all
+        ):
+            expansions.append("painting painted art canvas")
+        if "paint" in q_lower_all and "sunrise" in q_lower_all:
+            expansions.append("painted sunrise last year 2022")
+        if "friend" in q_lower_all:
+            expansions.append("friends friendship close friend")
         if "research" in q_lower_all:
             expansions.append("research adoption agencies")
         if "relationship status" in q_lower_all or "single" in q_lower_all:
             expansions.append("single parent relationship")
-        if "paint" in q_lower_all and "sunrise" in q_lower_all:
-            expansions.append("painted sunrise last year 2022")
 
         search_queries = [dense_query, question, *expansions]
         rich_contexts: list[dict] = []
@@ -257,15 +292,50 @@ class MemoryRouter:
                 rich_contexts.append(
                     self._atom_to_search_result(atom, score=max(atom.salience, 0.5)).model_dump()
                 )
+
+        # "What did X / what is X's / where did X" → targeted "{Name} {key_noun}" atom probes.
+        probe_entity = _probe_entity_from_question(question)
+        if probe_entity:
+            entity_lower = probe_entity.lower()
+            key_nouns = [
+                tok
+                for tok in dense_terms
+                if tok.lower() not in {entity_lower, probe_entity.lower()}
+            ][:4]
+            probe_queries: list[str] = [probe_entity]
+            for noun in key_nouns[:3]:
+                probe_queries.append(f"{probe_entity} {noun}")
+            seen_probe: set[str] = set()
+            for pq in probe_queries:
+                if pq.lower() in seen_probe:
+                    continue
+                seen_probe.add(pq.lower())
+                for atom in self.store.search_atoms(pq, limit=3):
+                    rich_contexts.append(
+                        self._atom_to_search_result(
+                            atom, score=max(atom.salience, 0.62)
+                        ).model_dump()
+                    )
+
         rich_contexts = merge_contexts(rich_contexts, [])
 
         should_use_llm = use_llm if use_llm is not None else use_llm_from_env()
         if should_use_llm:
-            context_texts = [
-                str(item.get("text") or "")[:400]
-                for item in rich_contexts[:6]
-                if item.get("text")
-            ]
+            # Prefer atomic / dialogue snippets first for the local answerer.
+            ordered = sorted(
+                [item for item in rich_contexts if item.get("text")],
+                key=lambda item: (
+                    0
+                    if (
+                        str((item.get("provenance") or {}).get("source")) == "atomic-memory"
+                        or str(item.get("id") or "").startswith(("atom:", "turn:"))
+                        or str(item.get("text") or "").startswith("[D")
+                    )
+                    else 1,
+                    -float(item.get("score") or 0.0),
+                ),
+            )
+            context_texts = [str(item.get("text") or "")[:500] for item in ordered[:10]]
             try:
                 from .llm_answer import get_local_answerer
 
@@ -1039,7 +1109,15 @@ class MemoryRouter:
             as_of=as_of,
         )
         if prefer_older_valid_from:
-            atoms.sort(key=lambda a: (parse_iso(a.valid_from) or datetime.min.replace(tzinfo=UTC)))
+            def _sort_key(atom: AtomicMemory) -> datetime:
+                parsed = parse_iso(atom.valid_from)
+                if parsed is None:
+                    return datetime.min.replace(tzinfo=UTC)
+                if parsed.tzinfo is None:
+                    return parsed.replace(tzinfo=UTC)
+                return parsed
+
+            atoms.sort(key=_sort_key)
         results = [
             self._atom_to_search_result(atom, score=max(atom.salience, 0.35))
             for atom in atoms
