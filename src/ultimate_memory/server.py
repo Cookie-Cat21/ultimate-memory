@@ -25,6 +25,22 @@ def memory_bootstrap(task: str, project_path: str | None = None) -> dict:
 
 
 @mcp.tool()
+def memory_answer(
+    question: str,
+    project_path: str | None = None,
+    limit: Annotated[int, "1 to 20"] = 8,
+    as_of: str | None = None,
+) -> dict:
+    """Search memory and synthesize an extractive answer for QA benchmarks (no LLM)."""
+    return router.answer(
+        question=question,
+        project_path=project_path,
+        limit=max(1, min(limit, 20)),
+        as_of=as_of,
+    )
+
+
+@mcp.tool()
 def memory_search(
     query: str,
     project_path: str | None = None,

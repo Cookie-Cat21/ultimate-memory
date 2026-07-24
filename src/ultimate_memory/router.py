@@ -30,6 +30,7 @@ from .models import (
     SearchResult,
     safe_slug,
 )
+from .answer import f1_ready_text, synthesize_answer
 from .store import LocalStore
 
 
@@ -103,6 +104,30 @@ class MemoryRouter:
             )
         )
         return {"chunks": len(chunks), "qdrant_chunks": vector_count, "graph_chunks": graph_count}
+
+    def answer(
+        self,
+        question: str,
+        project_path: str | None = None,
+        limit: int = 8,
+        as_of: str | None = None,
+    ) -> dict:
+        """Retrieve memory contexts and synthesize an extractive answer (no LLM)."""
+        search_result = self.search(
+            query=question,
+            project_path=project_path,
+            limit=limit,
+            as_of=as_of,
+        )
+        contexts = [item["text"] for item in search_result["results"] if item.get("text")]
+        answer_text = synthesize_answer(question, contexts)
+        return {
+            "question": question,
+            "answer": answer_text,
+            "f1_text": f1_ready_text(answer_text),
+            "contexts_used": contexts,
+            "search": search_result,
+        }
 
     def search(
         self,
