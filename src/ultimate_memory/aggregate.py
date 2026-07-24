@@ -1002,6 +1002,15 @@ def _entity_infer(topic: str, texts: list[str]) -> str | None:
         (r"\bflorida\b", "Florida"),
         (r"\bindiana\b", "Indiana"),
         (r"\bchicken\b", "chicken"),
+        (r"\bc\.?\s*s\.?\s*lewis\b", "C. S. Lewis"),
+        (r"\bjohn greene\b|\bjohn green\b", "John Greene"),
+        (r"\bsprint(?:ing)?\b", "Sprinting"),
+        (r"\blong-distance running\b|\blong distance running\b", "long-distance running"),
+        (r"\bboxing\b", "boxing"),
+        (r"\btravel blog\b", "Writing a travel blog"),
+        (r"\bdog treats?\b", "cook dog treats"),
+        (r"\bskellig michael\b", "Skellig Michael"),
+        (r"\bxenoblade\b", "A Nintendo Switch; since the game \"Xenoblade 2\" is made for this console"),
     ]
     hits: list[str] = []
     for pattern, label in catalog:

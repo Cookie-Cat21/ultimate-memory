@@ -524,6 +524,15 @@ class MemoryRouter:
                 answer_text = aggregated
             elif prefer_aggregated and aggregated and not should_list_answer:
                 answer_text = aggregated
+            # If the LLM collapsed a what/which question into Likely yes/no, prefer
+            # a concrete entity aggregate when we have one.
+            elif (
+                aggregated
+                and agg_intent
+                and agg_intent.kind == "entity_infer"
+                and re.search(r"^(?:likely\s+)?(?:yes|no)\b", (answer_text or "").strip(), re.I)
+            ):
+                answer_text = aggregated
         else:
             answer_text = aggregated or synthesize_answer(question, rich_contexts)
         return {
