@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ultimate_memory.atoms import contradiction_score, role_conflict_boost
-from ultimate_memory.extraction import extract_from_transcript
+from ultimate_memory.extraction import extract_from_transcript, parse_dialogue_turns
 from ultimate_memory.router import MemoryRouter
 
 
@@ -103,6 +103,29 @@ class TestHeuristicExtraction:
         r = MemoryRouter._extract_reflection(LOCOMO_TRANSCRIPT, "locomo-1", "/proj/locomo")
         assert r is not None
         assert "locomo" in r.summary
+
+    def test_painted_fact_avoids_duplicate_verb(self):
+        text = "Melanie: I painted that lake sunrise in 2022! It's special to me."
+        result = extract_from_transcript(text, "s1", None)
+        assert result.payload is not None
+        facts = " ".join(result.payload.facts)
+        assert "painted painted" not in facts.lower()
+        assert "lake sunrise" in facts.lower()
+
+    def test_parse_dialogue_turns(self):
+        text = "\n".join(
+            [
+                "[D1:1] Caroline: Hi!",
+                "[D1:2] Melanie: I moved to Portland last year.",
+                "not a dialogue line",
+            ]
+        )
+        turns = parse_dialogue_turns(text)
+        assert len(turns) == 2
+        assert turns[0].dia_id == "D1:1"
+        assert turns[0].speaker == "Caroline"
+        assert turns[1].dia_id == "D1:2"
+        assert "Portland" in turns[1].utterance
 
 
 class TestRoleContradictionCues:

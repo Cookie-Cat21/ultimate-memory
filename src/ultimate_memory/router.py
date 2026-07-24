@@ -20,7 +20,8 @@ from .atoms import (
 )
 from .chunking import chunk_text
 from .config import Settings, load_settings
-from .extraction import extract_from_transcript
+from .dates import parse_loose_date, resolve_relative_dates
+from .extraction import extract_from_transcript, parse_dialogue_turns, session_anchor_from_text
 from .models import (
     AtomicMemory,
     AuditEvent,
@@ -130,6 +131,32 @@ class MemoryRouter:
         rich_contexts = [
             item for item in search_result["results"] if item.get("text")
         ]
+
+        # Type-biased side searches for how-to / preference / decision questions.
+        q_lower = question.lower()
+        typed_extra: list[tuple[str, list[str]]] = []
+        if any(cue in q_lower for cue in ("how do", "how to", "steps", "procedure", "deploy")):
+            typed_extra.append((question, ["procedure"]))
+        if any(cue in q_lower for cue in ("prefer", "preference", "theme", "always", "never")):
+            typed_extra.append((question, ["preference"]))
+        if any(cue in q_lower for cue in ("decide", "decided", "decision", "chose", "chosen")):
+            typed_extra.append((question, ["decision"]))
+        for typed_query, types in typed_extra:
+            typed_result = self.search(
+                query=typed_query,
+                project_path=project_path,
+                memory_types=types,
+                limit=min(limit, 5),
+                as_of=as_of,
+            )
+            for item in typed_result.get("results", []):
+                if item.get("text"):
+                    rich_contexts.append(item)
+            # Lexical miss fallback: inject highest-salience active atoms of that type.
+            for atom in self.store.list_active_atoms(memory_types=types, limit=5):
+                rich_contexts.append(
+                    self._atom_to_search_result(atom, score=max(atom.salience, 0.55)).model_dump()
+                )
 
         hop_entities = extract_hop_entities(question, search_result["results"])
         hop_queries = build_hop_queries(
@@ -385,6 +412,17 @@ class MemoryRouter:
                 )
             )
         ]
+        turn_chunks, turn_atoms = self._dialogue_turn_memory(
+            source_text,
+            session_id=session_id,
+            safe_session=safe_session,
+            client=client,
+            project_path=project_path,
+            tags=tags or [],
+            log_path=log_path,
+            event_time=event_time,
+        )
+        chunks.extend(turn_chunks)
         for chunk in chunks:
             self.store.upsert_chunk(
                 chunk_id=chunk.id,
@@ -395,6 +433,11 @@ class MemoryRouter:
                 metadata=chunk.metadata,
                 created_at=chunk.created_at,
             )
+        turn_atoms_created = 0
+        for atom in turn_atoms:
+            report = self._ingest_atom(atom)
+            if report["status"] == "created":
+                turn_atoms_created += 1
         vector_count = self.vector.upsert_chunks(chunks) if self._vector_ready else 0
         graph_count = self.graph.upsert_chunks(chunks) if self._graph_ready else 0
 
@@ -420,6 +463,8 @@ class MemoryRouter:
                     "session_id": session_id,
                     "path": str(log_path),
                     "chunks": len(chunks),
+                    "turn_chunks": len(turn_chunks),
+                    "turn_atoms": turn_atoms_created,
                     "qdrant_chunks": vector_count,
                     "graph_chunks": graph_count,
                     "auto_reflected": reflection_result is not None,
@@ -429,6 +474,8 @@ class MemoryRouter:
         return {
             "path": str(log_path),
             "chunks": len(chunks),
+            "turn_chunks": len(turn_chunks),
+            "turn_atoms": turn_atoms_created,
             "qdrant_chunks": vector_count,
             "graph_chunks": graph_count,
             "reflection": reflection_result,
@@ -708,6 +755,74 @@ class MemoryRouter:
     # ------------------------------------------------------------------
     # Atomic memory commit / contradiction
     # ------------------------------------------------------------------
+
+    def _dialogue_turn_memory(
+        self,
+        source_text: str,
+        *,
+        session_id: str,
+        safe_session: str,
+        client: str,
+        project_path: str | None,
+        tags: list[str],
+        log_path: Path,
+        event_time: str | None,
+    ) -> tuple[list[MemoryChunk], list[AtomicMemory]]:
+        """Index LoCoMo-style dialogue turns as searchable chunks and fact atoms."""
+        turns = parse_dialogue_turns(source_text)
+        if not turns:
+            return [], []
+
+        anchor = session_anchor_from_text(source_text)
+        if anchor is None and event_time:
+            anchor = parse_loose_date(event_time)
+
+        stamp = event_time or now_iso()
+        chunks: list[MemoryChunk] = []
+        atoms: list[AtomicMemory] = []
+
+        for turn in turns:
+            resolved = resolve_relative_dates(turn.utterance, anchor)
+            line_text = f"[{turn.dia_id}] {turn.speaker}: {resolved}"
+            informative = len(resolved.strip()) >= 20
+            chunks.append(
+                MemoryChunk(
+                    id=f"turn:{safe_session}:{turn.dia_id}",
+                    text=line_text,
+                    source_path=str(log_path),
+                    title=f"{turn.speaker} [{turn.dia_id}]",
+                    memory_type=MemoryType.FACT if informative else MemoryType.LOG,
+                    project_path=project_path,
+                    tags=tags,
+                    metadata={
+                        "client": client,
+                        "session_id": session_id,
+                        "dia_id": turn.dia_id,
+                        "speaker": turn.speaker,
+                    },
+                )
+            )
+            if informative and len(atoms) < 40:
+                atoms.append(
+                    AtomicMemory(
+                        id=f"atom:turn:{safe_session}:{turn.dia_id}",
+                        text=f"{turn.speaker}: {resolved}",
+                        memory_type=MemoryType.FACT,
+                        project_path=project_path,
+                        entities=[turn.speaker],
+                        source_refs=[f"session:{session_id}", f"turn:{turn.dia_id}"],
+                        created_at=stamp,
+                        valid_from=stamp,
+                        event_time=event_time,
+                        metadata={
+                            "dia_id": turn.dia_id,
+                            "speaker": turn.speaker,
+                            "session_id": session_id,
+                        },
+                    )
+                )
+
+        return chunks, atoms
 
     def _commit_atoms_from_reflection(
         self,
@@ -1008,21 +1123,37 @@ class MemoryRouter:
                     value = stripped.split(":", 1)[1].strip().strip('"').strip("'")
                     if value and parse_iso(value):
                         return value
+                    loose = parse_loose_date(value)
+                    if loose:
+                        return loose.date().isoformat()
             if not in_frontmatter and stripped and not stripped.startswith("#"):
-                # Free-text header like "Session 2024-06-15"
+                # Free-text header like "Session 2024-06-15" or "1:56 pm on 8 May, 2023"
                 match = re.search(
                     r"\b(20\d{2}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?)?)\b",
                     stripped,
                 )
                 if match and parse_iso(match.group(1)):
                     return match.group(1)
+                loose = parse_loose_date(stripped)
+                if loose:
+                    return loose.date().isoformat()
         return None
 
     @staticmethod
     def _read_transcript_or_path(transcript_or_path: str) -> tuple[str, str]:
-        candidate = Path(transcript_or_path)
-        if candidate.exists() and candidate.is_file():
-            return candidate.read_text(encoding="utf-8", errors="ignore"), "path"
+        # Inline transcripts can be huge; never treat multiline / huge strings as paths.
+        if (
+            not transcript_or_path
+            or "\n" in transcript_or_path
+            or len(transcript_or_path) > 512
+        ):
+            return transcript_or_path, "inline"
+        try:
+            candidate = Path(transcript_or_path)
+            if candidate.exists() and candidate.is_file():
+                return candidate.read_text(encoding="utf-8", errors="ignore"), "path"
+        except OSError:
+            pass
         return transcript_or_path, "inline"
 
     @staticmethod

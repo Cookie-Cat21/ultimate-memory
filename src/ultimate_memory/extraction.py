@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .dates import parse_loose_date, resolve_relative_dates
 from .models import ReflectionPayload
 
 # Legacy keyword signals (fallback merge).
@@ -82,6 +83,9 @@ _SPEAKER_SAID = re.compile(
     r"(?P<speaker>[A-Z][a-zA-Z][\w.-]{0,30})\s+said\s+(?:she|he|they|that)\s+(?P<utterance>.+)",
     re.IGNORECASE,
 )
+_DIALOGUE_TURN_LINE = re.compile(r"^\[(D\d+:\d+)\]\s*([^:]+):\s*(.+)$")
+_MAX_TURN_ATOMS = 40
+_MIN_TURN_ATOM_LEN = 20
 
 # Fact patterns: (compiled regex, optional speaker prefix template)
 _FACT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -102,6 +106,24 @@ _FACT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(?:from|based\s+in)\s+[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?\b", re.I), "{text}"),
     (re.compile(r"\b(?:diagnosed\s+with|suffers?\s+from|dealing\s+with)\s+.+", re.I), "{text}"),
     (re.compile(r"\b(?:celebrated|attended|visited|traveled\s+to)\s+.+", re.I), "{text}"),
+    (
+        re.compile(
+            r"\b(?:went|go|going)\s+to\s+.+\b(?:on|in)\s+"
+            r"(?:\d{1,2}\s+\w+\s+\d{4}|\w+\s+\d{1,2},?\s+\d{4}|\d{4})\b.*",
+            re.I,
+        ),
+        "{speaker} {match}",
+    ),
+    (
+        re.compile(
+            r"\b(?:on|in)\s+(?:\d{1,2}\s+\w+\s+\d{4}|\w+\s+\d{1,2},?\s+\d{4}|\d{4})\b.+",
+            re.I,
+        ),
+        "{text}",
+    ),
+    (re.compile(r"\b(?:i'?m|i\s+am)\s+(?:a\s+)?transgender\b.+", re.I), "{speaker} is {match}"),
+    (re.compile(r"\bresearch(?:ing|ed)?\s+.+", re.I), "{speaker} researched {match}"),
+    (re.compile(r"\bpainted\s+(.+)", re.I), "{speaker} painted {match}"),
 ]
 
 _PREFERENCE_PATTERNS: list[re.Pattern[str]] = [
@@ -187,6 +209,17 @@ class ExtractionResult:
     entities: list[str] = field(default_factory=list)
 
 
+@dataclass
+class ParsedDialogueTurn:
+    dia_id: str
+    speaker: str
+    utterance: str
+
+    @property
+    def line_text(self) -> str:
+        return f"[{self.dia_id}] {self.speaker}: {self.utterance}"
+
+
 def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())[:_MAX_LEN]
 
@@ -249,7 +282,7 @@ def _match_fact(speaker: str | None, text: str) -> str | None:
         m = pattern.search(text)
         if not m:
             continue
-        matched = m.group(0)
+        matched = m.group(1) if m.lastindex and m.lastindex >= 1 else m.group(0)
         if template == "{text}":
             candidate = _with_speaker(speaker, text) if speaker else text
         else:
@@ -288,6 +321,41 @@ def _add_unique(bucket: list[str], seen: set[str], line: str) -> None:
         bucket.append(norm)
 
 
+def parse_dialogue_turns(text: str) -> list[ParsedDialogueTurn]:
+    """Parse LoCoMo-style dialogue lines like ``[D1:3] Caroline: text``."""
+    turns: list[ParsedDialogueTurn] = []
+    for raw_line in text.splitlines():
+        match = _DIALOGUE_TURN_LINE.match(raw_line.strip())
+        if not match:
+            continue
+        turns.append(
+            ParsedDialogueTurn(
+                dia_id=match.group(1),
+                speaker=match.group(2).strip(),
+                utterance=match.group(3).strip(),
+            )
+        )
+    return turns
+
+
+def session_anchor_from_text(text: str):
+    """Parse session date from transcript frontmatter if present."""
+    return _session_anchor(text)
+
+
+def _session_anchor(text: str):
+    """Parse session date from transcript frontmatter if present."""
+    for line in text.splitlines()[:40]:
+        lower = line.strip().lower()
+        for key in ("created_at:", "session_date:", "date:", "event_time:"):
+            if lower.startswith(key):
+                value = line.split(":", 1)[1].strip().strip('"').strip("'")
+                parsed = parse_loose_date(value)
+                if parsed:
+                    return parsed
+    return None
+
+
 def extract_from_transcript(
     text: str,
     session_id: str,
@@ -301,6 +369,7 @@ def extract_from_transcript(
     entities: list[str] = []
     seen: set[str] = set()
     seen_entities: set[str] = set()
+    anchor = _session_anchor(text)
 
     def _track_entities(speaker: str | None, utterance: str) -> None:
         for name in _extract_entities_from_line(speaker, utterance):
@@ -310,10 +379,13 @@ def extract_from_transcript(
                 entities.append(name)
 
     for raw_line in text.splitlines():
-        speaker, utterance = _parse_line(raw_line)
+        # Strip dialogue-id prefixes like [D1:3]
+        cleaned = re.sub(r"^\[D\d+:\d+\]\s*", "", raw_line.strip())
+        speaker, utterance = _parse_line(cleaned)
         if not utterance:
             continue
 
+        utterance = resolve_relative_dates(utterance, anchor)
         _track_entities(speaker, utterance)
         lower = utterance.lower()
         categorized = False

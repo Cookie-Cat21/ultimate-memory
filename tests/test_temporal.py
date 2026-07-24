@@ -231,3 +231,35 @@ class TestIngestEventTime:
             atom = atoms["atoms"][0]
             assert atom.get("event_time") == "2024-03-15T10:00:00+00:00"
             assert atom["valid_from"].startswith("2024-03-15")
+
+
+class TestDialogueTurnIngest:
+    def test_ingest_log_indexes_dialogue_turns(self, tmp_path):
+        router = MemoryRouter(make_settings(tmp_path))
+        transcript = "\n".join(
+            [
+                "---",
+                "created_at: 2024-03-15T10:00:00+00:00",
+                "---",
+                "",
+                "[D1:1] Caroline: Hi Melanie!",
+                "[D1:2] Melanie: I painted a bowl for my friend's birthday last year.",
+                "[D1:3] Caroline: That necklace is from my grandmother in Sweden and means a lot to me.",
+            ]
+        )
+        result = router.ingest_log(
+            client="test",
+            session_id="sess-dia",
+            transcript_or_path=transcript,
+        )
+        assert result["turn_chunks"] == 3
+        assert result["turn_atoms"] == 2
+
+        search = router.search("necklace grandmother Sweden", limit=8)
+        texts = " ".join(item["text"] for item in search["results"])
+        assert "Sweden" in texts
+        assert "D1:3" in texts
+
+        atoms = router.list_atoms(query="painted bowl", limit=5)
+        assert atoms["count"] >= 1
+        assert any("Melanie" in atom["text"] for atom in atoms["atoms"])

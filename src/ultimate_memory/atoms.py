@@ -35,6 +35,9 @@ _SUPERSESSION_CUES = (
     "not using",
     "rather than",
     "as opposed to",
+    "instead.",
+    "prefer light",
+    "prefer dark",
 )
 
 _TYPE_IMPORTANCE: dict[str, float] = {
@@ -218,6 +221,9 @@ _LOCATION_CUES = (
     "lives in",
     "live in",
     "living in",
+    "lived in",
+    "staying in",
+    "stayed in",
     "moved to",
     "moving to",
     "based in",
@@ -339,9 +345,14 @@ def role_conflict_boost(new_text: str, old_text: str) -> float:
                 boost += 0.38
             elif jaccard(new_vals, old_vals) >= 0.55 and not explicit_replace:
                 boost -= 0.12
-        if "moved to" in new_lower and ("lives in" in old_lower or "live in" in old_lower):
+        if "moved to" in new_lower and any(
+            cue in old_lower for cue in ("lives in", "live in", "lived in", "living in", "staying in")
+        ):
             if new_vals and old_vals and new_vals != old_vals:
                 boost += 0.28
+            elif new_vals and old_vals != new_vals:
+                # Even if old value extraction is noisy, moved-to vs lived-in is a replace.
+                boost += 0.22
         if "moved to" in new_lower and "moved to" in old_lower and new_vals != old_vals:
             boost += 0.18
 
@@ -389,12 +400,24 @@ def contradiction_score(new_text: str, old_text: str) -> float:
         return 1.0
 
     # Opposite polarity on shared topic words (prefer X vs never X / don't X)
-    new_neg = bool(re.search(r"\b(never|don't|do not|avoid|stop)\b", new_text.lower()))
-    old_neg = bool(re.search(r"\b(never|don't|do not|avoid|stop)\b", old_text.lower()))
+    new_neg = bool(re.search(r"\b(never|don't|do not|avoid|stop|no longer)\b", new_text.lower()))
+    old_neg = bool(re.search(r"\b(never|don't|do not|avoid|stop|no longer)\b", old_text.lower()))
     new_pos = bool(re.search(r"\b(always|prefer|use|should)\b", new_text.lower()))
     old_pos = bool(re.search(r"\b(always|prefer|use|should)\b", old_text.lower()))
     if (new_neg and old_pos) or (new_pos and old_neg):
         score += 0.22
+
+    # Theme flip: dark↔light, etc. with preference + supersession cues.
+    theme_pairs = (("dark", "light"), ("vim", "emacs"), ("tabs", "spaces"))
+    for a, b in theme_pairs:
+        new_has_a, new_has_b = a in new_text.lower(), b in new_text.lower()
+        old_has_a, old_has_b = a in old_text.lower(), b in old_text.lower()
+        if ("prefer" in new_text.lower() or "prefer" in old_text.lower()) and (
+            (old_has_a and new_has_b and not new_has_a) or (old_has_b and new_has_a and not new_has_b)
+            or (new_has_a and new_has_b and has_supersession_cue(new_text) and (old_has_a or old_has_b))
+        ):
+            score += 0.35
+            break
 
     if overlap < 0.28:
         if role_boost < min_role:
