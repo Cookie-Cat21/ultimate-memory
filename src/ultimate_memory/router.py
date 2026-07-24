@@ -9,9 +9,24 @@ from uuid import uuid4
 from .adapters.basic_memory import BasicMemoryAdapter
 from .adapters.graph import GraphAdapter
 from .adapters.vector import VectorAdapter
+from .atoms import (
+    atoms_from_reflection,
+    blend_scores,
+    contradiction_score,
+    group_near_duplicates,
+    now_iso,
+)
 from .chunking import chunk_text
 from .config import Settings, load_settings
-from .models import AuditEvent, MemoryChunk, MemoryType, ReflectionPayload, SearchResult, safe_slug
+from .models import (
+    AtomicMemory,
+    AuditEvent,
+    MemoryChunk,
+    MemoryType,
+    ReflectionPayload,
+    SearchResult,
+    safe_slug,
+)
 from .store import LocalStore
 
 # Phrases that signal extractable knowledge in session transcripts.
@@ -99,10 +114,12 @@ class MemoryRouter:
         memory_types: list[str] | None = None,
         limit: int | None = None,
         tags: list[str] | None = None,
+        include_superseded: bool = False,
     ) -> dict:
         actual_limit = limit or self.settings.retrieval.default_limit
+        self.store.refresh_salience(limit=200)
 
-        # --- run all four sources in parallel --------------------------------
+        # --- run all five sources in parallel --------------------------------
         def _vector():
             return self.vector.search(
                 query, actual_limit, tags=tags, memory_types=memory_types
@@ -126,24 +143,43 @@ class MemoryRouter:
         def _basic():
             return self.basic.search(query, actual_limit, include_cli=False)
 
+        def _atoms():
+            return self._atom_search_results(
+                query,
+                limit=actual_limit,
+                memory_types=memory_types,
+                include_superseded=include_superseded,
+            )
+
         def _graph():
             return self.graph.query(query, depth=1) if self._graph_ready else []
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
             fv = pool.submit(_vector)
             fk = pool.submit(_keyword)
             fb = pool.submit(_basic)
+            fa = pool.submit(_atoms)
             fg = pool.submit(_graph)
             vector_results: list[SearchResult] = fv.result()
             keyword_results: list[SearchResult] = fk.result()
             bm_results: list[SearchResult] = fb.result()
+            atom_results: list[SearchResult] = fa.result()
             graph_hits: list[dict] = fg.result()
 
         results = self._rrf_rank(
-            [vector_results, keyword_results, bm_results],
+            [vector_results, keyword_results, bm_results, atom_results],
             memory_types=memory_types,
-            limit=actual_limit,
+            limit=actual_limit * 2,
         )
+        results = self._apply_salience_rerank(results)[:actual_limit]
+
+        touched = [
+            r.id for r in results
+            if r.provenance.get("source") == "atomic-memory" or r.id.startswith("atom:")
+        ]
+        if touched:
+            self.store.touch_atoms(touched)
+
         if project_path:
             for result in results:
                 result.provenance["requested_project_path"] = project_path
@@ -152,32 +188,79 @@ class MemoryRouter:
             "mode": self.health()["mode"],
             "results": [result.model_dump() for result in results],
             "graph_hits": graph_hits[:5],
+            "atoms_considered": len(atom_results),
         }
 
     def bootstrap(self, task: str, project_path: str | None = None) -> dict:
+        """Type-aware bootstrap: preferences/procedures first, then decisions/facts."""
         self.refresh_health()
-        queries = [task]
+        self.store.refresh_salience(limit=300)
+
+        typed_queries: list[tuple[str, list[str] | None, int]] = [
+            (f"{task} preferences", ["preference"], 4),
+            ("user preferences always never prefer", ["preference"], 3),
+            (f"{task} procedures how to", ["procedure"], 4),
+            (f"{task} decisions", ["decision"], 3),
+            (task, ["fact", "note", "decision"], 5),
+        ]
         if project_path:
-            queries.append(Path(project_path).name)
-        queries.extend(["Ovindu preferences", "procedures", "recent decisions"])
+            typed_queries.insert(0, (Path(project_path).name, None, 4))
 
-        collected: list[SearchResult] = []
-        for query in queries:
-            search_result = self.search(query, project_path=project_path, limit=5)
-            collected.extend(SearchResult(**item) for item in search_result["results"])
+        buckets: dict[str, list[SearchResult]] = {
+            "preference": [],
+            "procedure": [],
+            "decision": [],
+            "other": [],
+        }
+        for query, types, limit in typed_queries:
+            search_result = self.search(
+                query,
+                project_path=project_path,
+                memory_types=types,
+                limit=limit,
+            )
+            for item in search_result["results"]:
+                result = SearchResult(**item)
+                key = result.memory_type if result.memory_type in buckets else "other"
+                buckets[key].append(result)
 
-        ranked = self._rrf_rank([collected], limit=12)
+        # Also pull highest-salience active atoms directly (even if lexical miss).
+        for atom in self.store.list_active_atoms(
+            memory_types=["preference", "procedure", "decision"],
+            project_path=project_path,
+            limit=10,
+        ):
+            result = self._atom_to_search_result(atom, score=atom.salience)
+            key = atom.memory_type.value if atom.memory_type.value in buckets else "other"
+            buckets[key].append(result)
+
+        ordered: list[SearchResult] = []
+        for key in ("preference", "procedure", "decision", "other"):
+            ordered.extend(self._rrf_rank([buckets[key]], limit=6))
+
+        ranked = self._dedupe_results(ordered)
+        ranked = self._apply_salience_rerank(ranked)[:14]
         packet = self._fit_budget(ranked, self.settings.retrieval.bootstrap_token_budget_chars)
         return {
             "task": task,
             "project_path": project_path,
             "health": self.health(),
             "instructions": [
-                "Use this packet instead of asking Ovindu to re-explain known context.",
+                "Use this packet instead of asking the user to re-explain known context.",
+                "Treat preference/procedure atoms as durable defaults unless superseded.",
                 "Call memory_search for details instead of loading the whole vault.",
                 "Call memory_reflect after meaningful work to update durable memory.",
             ],
             "context_packet": packet,
+            "composition": {
+                "preferences": sum(1 for r in ranked if r.memory_type == "preference"),
+                "procedures": sum(1 for r in ranked if r.memory_type == "procedure"),
+                "decisions": sum(1 for r in ranked if r.memory_type == "decision"),
+                "other": sum(
+                    1 for r in ranked
+                    if r.memory_type not in {"preference", "procedure", "decision"}
+                ),
+            },
         }
 
     def ingest_log(
@@ -283,11 +366,20 @@ class MemoryRouter:
         )
         entity_links = self._entity_links(reflection_text, note_titles)
 
-        content = self._reflection_markdown(title, payload, project_path=project_path, entity_links=entity_links)
+        content = self._reflection_markdown(
+            title, payload, project_path=project_path, entity_links=entity_links
+        )
         duplicate_hits = self.search(payload.summary, limit=5)["results"]
         confidence = self._confidence(payload, duplicate_hits)
         should_write = confidence >= 0.55
         candidate_id = uuid4().hex
+
+        # Always commit typed atoms (even if the markdown note is staged).
+        atom_report = self._commit_atoms_from_reflection(
+            payload,
+            project_path=project_path,
+            entities=entity_links,
+        )
 
         result = {
             "candidate_id": candidate_id,
@@ -296,6 +388,7 @@ class MemoryRouter:
             "duplicate_hits": duplicate_hits[:3],
             "title": title,
             "folder": folder,
+            "atoms": atom_report,
         }
         if should_write:
             self.basic.write_note(
@@ -321,6 +414,7 @@ class MemoryRouter:
                     "content": content,
                     "payload": payload.model_dump(),
                     "confidence": confidence,
+                    "atoms": atom_report,
                 },
             )
 
@@ -392,6 +486,17 @@ class MemoryRouter:
             content=content,
             tags=["ultimate-memory", "supersession"],
         )
+
+        # Bi-temporal atom update: create the new fact atom and invalidate matches.
+        new_atom = AtomicMemory(
+            id=f"atom:fact:{safe_slug(new_fact)[:48]}:{uuid4().hex[:8]}",
+            text=new_fact,
+            memory_type=MemoryType.FACT,
+            source_refs=source_refs,
+            metadata={"supersession_reason": reason, "old_ref": old_ref},
+        )
+        atom_report = self._ingest_atom(new_atom, force_supersede_query=old_ref)
+
         graph_written = (
             self.graph.supersede(old_ref, new_fact, reason, source_refs) if self._graph_ready else False
         )
@@ -403,19 +508,283 @@ class MemoryRouter:
                     "new_fact": new_fact,
                     "reason": reason,
                     "graph_written": graph_written,
+                    "atoms": atom_report,
                 },
                 source_refs=source_refs,
             )
         )
-        return {"written": True, "graph_written": graph_written, "title": title}
+        return {
+            "written": True,
+            "graph_written": graph_written,
+            "title": title,
+            "atoms": atom_report,
+        }
+
+    def list_atoms(
+        self,
+        memory_types: list[str] | None = None,
+        project_path: str | None = None,
+        query: str | None = None,
+        limit: int = 20,
+        include_superseded: bool = False,
+    ) -> dict:
+        if query:
+            atoms = self.store.search_atoms(
+                query,
+                limit=limit,
+                memory_types=memory_types,
+                include_superseded=include_superseded,
+            )
+        else:
+            atoms = self.store.list_active_atoms(
+                memory_types=memory_types,
+                project_path=project_path,
+                limit=limit,
+            )
+            if include_superseded:
+                # Active list already filters; for superseded browse use search with "*".
+                pass
+        return {
+            "count": len(atoms),
+            "atoms": [atom.model_dump() for atom in atoms],
+        }
+
+    def consolidate(self, dry_run: bool = False, limit: int = 200) -> dict:
+        """Merge near-duplicate active atoms; keep the highest-salience survivor."""
+        self.store.refresh_salience(limit=limit)
+        active = self.store.list_active_atoms(limit=limit)
+        groups = group_near_duplicates(active, threshold=0.72)
+        merges: list[dict] = []
+        for group in groups:
+            survivor = max(group, key=lambda a: (a.salience, a.access_count, a.created_at))
+            victims = [a for a in group if a.id != survivor.id]
+            merge_info = {
+                "survivor_id": survivor.id,
+                "survivor_text": survivor.text,
+                "merged_ids": [v.id for v in victims],
+                "merged_texts": [v.text for v in victims],
+            }
+            if not dry_run:
+                for victim in victims:
+                    self.store.invalidate_atom(victim.id, superseded_by=survivor.id)
+                    if self._graph_ready:
+                        self.graph.supersede_atom(
+                            victim.id,
+                            survivor.id,
+                            reason="consolidate:near-duplicate",
+                        )
+                    # Reinforce survivor with victim evidence
+                    survivor.source_refs = list(
+                        dict.fromkeys(survivor.source_refs + victim.source_refs)
+                    )
+                    survivor.access_count += victim.access_count
+                survivor.last_accessed = now_iso()
+                self.store.upsert_atom(survivor)
+                if self._graph_ready:
+                    self.graph.upsert_atoms([survivor])
+            merges.append(merge_info)
+
+        report = {
+            "dry_run": dry_run,
+            "groups_found": len(groups),
+            "atoms_merged": sum(len(m["merged_ids"]) for m in merges),
+            "merges": merges[:50],
+        }
+        self.store.write_audit(AuditEvent(action="consolidate", payload=report))
+        return report
 
     def dashboard_state(self) -> dict:
+        active_atoms = self.store.list_active_atoms(limit=50)
         return {
             "health": self.health(),
             "recent_audit": self.store.recent_audit(20),
             "candidates": self.store.list_candidates(),
             "indexed_sources": list(self.store.all_indexed_sources())[:100],
+            "active_atoms": len(active_atoms),
+            "top_atoms": [
+                {
+                    "id": a.id,
+                    "type": a.memory_type.value,
+                    "salience": a.salience,
+                    "text": a.text[:160],
+                }
+                for a in active_atoms[:10]
+            ],
         }
+
+    # ------------------------------------------------------------------
+    # Atomic memory commit / contradiction
+    # ------------------------------------------------------------------
+
+    def _commit_atoms_from_reflection(
+        self,
+        payload: ReflectionPayload,
+        *,
+        project_path: str | None,
+        entities: list[str],
+    ) -> dict:
+        atoms = atoms_from_reflection(
+            payload,
+            project_path=project_path,
+            entities=entities,
+        )
+        created: list[str] = []
+        duplicates: list[str] = []
+        superseded: list[dict] = []
+        for atom in atoms:
+            report = self._ingest_atom(atom)
+            if report["status"] == "created":
+                created.append(atom.id)
+            elif report["status"] == "duplicate":
+                duplicates.append(report.get("existing_id", atom.id))
+            superseded.extend(report.get("superseded", []))
+        return {
+            "created": created,
+            "duplicates": duplicates,
+            "superseded": superseded,
+            "count": len(created),
+        }
+
+    def _ingest_atom(
+        self,
+        atom: AtomicMemory,
+        *,
+        force_supersede_query: str | None = None,
+    ) -> dict:
+        """Insert an atom, skipping exact duplicates and superseding contradictions."""
+        same_id = self.store.get_atom(atom.id)
+        if same_id and same_id.is_active:
+            same_id.access_count += 1
+            same_id.last_accessed = now_iso()
+            same_id.source_refs = list(dict.fromkeys(same_id.source_refs + atom.source_refs))
+            self.store.upsert_atom(same_id)
+            return {"status": "duplicate", "existing_id": same_id.id, "superseded": []}
+
+        existing = self.store.find_duplicate_atom(atom)
+        if existing:
+            existing.access_count += 1
+            existing.last_accessed = now_iso()
+            existing.source_refs = list(dict.fromkeys(existing.source_refs + atom.source_refs))
+            self.store.upsert_atom(existing)
+            return {"status": "duplicate", "existing_id": existing.id, "superseded": []}
+
+        superseded: list[dict] = []
+        candidates = self.store.find_contradiction_candidates(atom)
+        if force_supersede_query:
+            # Also consider atoms that mention the old reference string.
+            extra = self.store.search_atoms(
+                force_supersede_query,
+                limit=8,
+                memory_types=[atom.memory_type.value],
+            )
+            seen = {c.id for c in candidates}
+            for item in extra:
+                if item.id not in seen:
+                    candidates.append(item)
+
+        for candidate in candidates:
+            score = contradiction_score(atom.text, candidate.text)
+            # Near-identical → treat as duplicate (reinforce old, don't create).
+            if score >= 0.92 and contradiction_score(candidate.text, atom.text) >= 0.92:
+                if atom.text.strip().lower() == candidate.text.strip().lower():
+                    candidate.access_count += 1
+                    candidate.last_accessed = now_iso()
+                    self.store.upsert_atom(candidate)
+                    return {
+                        "status": "duplicate",
+                        "existing_id": candidate.id,
+                        "superseded": [],
+                    }
+            # Clear contradiction / replacement
+            if score >= 0.58:
+                self.store.invalidate_atom(candidate.id, superseded_by=atom.id)
+                superseded.append(
+                    {
+                        "old_id": candidate.id,
+                        "old_text": candidate.text,
+                        "score": round(score, 3),
+                    }
+                )
+
+        self.store.upsert_atom(atom)
+        if self._graph_ready:
+            self.graph.upsert_atoms([atom])
+            for item in superseded:
+                self.graph.supersede_atom(
+                    item["old_id"],
+                    atom.id,
+                    reason=f"auto-contradiction:{item['score']}",
+                )
+        return {"status": "created", "atom_id": atom.id, "superseded": superseded}
+
+    def _atom_search_results(
+        self,
+        query: str,
+        *,
+        limit: int,
+        memory_types: list[str] | None,
+        include_superseded: bool,
+    ) -> list[SearchResult]:
+        atoms = self.store.search_atoms(
+            query,
+            limit=limit,
+            memory_types=memory_types,
+            include_superseded=include_superseded,
+        )
+        return [
+            self._atom_to_search_result(atom, score=max(atom.salience, 0.35))
+            for atom in atoms
+        ]
+
+    @staticmethod
+    def _atom_to_search_result(atom: AtomicMemory, *, score: float) -> SearchResult:
+        return SearchResult(
+            id=atom.id,
+            title=f"{atom.memory_type.value}: {atom.text[:72]}",
+            text=atom.text,
+            source_path=f"atom://{atom.id}",
+            memory_type=atom.memory_type.value,
+            score=score,
+            provenance={
+                "source": "atomic-memory",
+                "salience": atom.salience,
+                "valid_from": atom.valid_from,
+                "valid_until": atom.valid_until,
+                "superseded_by": atom.superseded_by,
+                "access_count": atom.access_count,
+                "entities": atom.entities,
+                "project_path": atom.project_path,
+            },
+        )
+
+    def _apply_salience_rerank(self, results: list[SearchResult]) -> list[SearchResult]:
+        """Blend RRF relevance with atomic salience (atoms only; preserve chunk RRF)."""
+        for result in results:
+            is_atom = (
+                result.provenance.get("source") == "atomic-memory"
+                or result.id.startswith("atom:")
+            )
+            result.provenance["relevance_score"] = result.score
+            if not is_atom:
+                result.provenance["salience_component"] = 0.0
+                continue
+            salience = float(result.provenance.get("salience") or 0.5)
+            result.provenance["salience_component"] = salience
+            result.score = blend_scores(result.score, salience)
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results
+
+    @staticmethod
+    def _dedupe_results(results: list[SearchResult]) -> list[SearchResult]:
+        seen: set[str] = set()
+        unique: list[SearchResult] = []
+        for result in results:
+            key = result.source_path or result.id
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(result)
+        return unique
 
     # ------------------------------------------------------------------
     # Ranking

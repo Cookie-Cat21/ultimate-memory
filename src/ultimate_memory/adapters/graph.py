@@ -6,7 +6,7 @@ from typing import Iterable
 from neo4j import GraphDatabase
 
 from ..config import Neo4jConfig
-from ..models import MemoryChunk
+from ..models import AtomicMemory, MemoryChunk
 
 WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 
@@ -37,8 +37,18 @@ class GraphAdapter:
         if not self.is_available():
             return False
         with self.driver().session() as session:
-            session.run("CREATE CONSTRAINT memory_entity_name IF NOT EXISTS FOR (e:Entity) REQUIRE e.name IS UNIQUE")
-            session.run("CREATE CONSTRAINT memory_source_id IF NOT EXISTS FOR (s:Source) REQUIRE s.id IS UNIQUE")
+            session.run(
+                "CREATE CONSTRAINT memory_entity_name IF NOT EXISTS "
+                "FOR (e:Entity) REQUIRE e.name IS UNIQUE"
+            )
+            session.run(
+                "CREATE CONSTRAINT memory_source_id IF NOT EXISTS "
+                "FOR (s:Source) REQUIRE s.id IS UNIQUE"
+            )
+            session.run(
+                "CREATE CONSTRAINT memory_atom_id IF NOT EXISTS "
+                "FOR (a:MemoryAtom) REQUIRE a.id IS UNIQUE"
+            )
         return True
 
     def upsert_chunks(self, chunks: Iterable[MemoryChunk], batch_size: int = 64) -> int:
@@ -112,6 +122,81 @@ class GraphAdapter:
                     ref=ref,
                     title=title,
                 )
+        return True
+
+    def upsert_atoms(self, atoms: Iterable[AtomicMemory]) -> int:
+        if not self.ensure_schema():
+            return 0
+        atom_list = list(atoms)
+        if not atom_list:
+            return 0
+        with self.driver().session() as session:
+            payload = [
+                {
+                    "id": atom.id,
+                    "text": atom.text,
+                    "memory_type": atom.memory_type.value,
+                    "project_path": atom.project_path or "",
+                    "valid_from": atom.valid_from,
+                    "valid_until": atom.valid_until,
+                    "superseded_by": atom.superseded_by,
+                    "salience": atom.salience,
+                    "entities": atom.entities,
+                    "source_refs": atom.source_refs,
+                }
+                for atom in atom_list
+            ]
+            session.run(
+                """
+                UNWIND $atoms AS atom
+                MERGE (a:MemoryAtom {id: atom.id})
+                SET a.text = atom.text,
+                    a.memory_type = atom.memory_type,
+                    a.project_path = atom.project_path,
+                    a.valid_from = atom.valid_from,
+                    a.valid_until = atom.valid_until,
+                    a.superseded_by = atom.superseded_by,
+                    a.salience = atom.salience
+                WITH a, atom
+                UNWIND coalesce(atom.entities, []) AS entity_name
+                WITH a, atom, entity_name
+                WHERE entity_name <> ''
+                MERGE (e:Entity {name: entity_name})
+                MERGE (a)-[:ABOUT]->(e)
+                WITH a, atom
+                UNWIND coalesce(atom.source_refs, []) AS ref
+                WITH a, ref
+                WHERE ref <> ''
+                MERGE (s:Source {id: ref})
+                MERGE (a)-[:SUPPORTED_BY]->(s)
+                """,
+                atoms=payload,
+            )
+        return len(atom_list)
+
+    def supersede_atom(
+        self,
+        old_atom_id: str,
+        new_atom_id: str,
+        reason: str,
+    ) -> bool:
+        if not self.ensure_schema():
+            return False
+        with self.driver().session() as session:
+            session.run(
+                """
+                MERGE (old:MemoryAtom {id: $old_id})
+                MERGE (new:MemoryAtom {id: $new_id})
+                MERGE (new)-[r:SUPERSEDES]->(old)
+                SET r.reason = $reason, r.at = datetime()
+                SET old.valid_until = coalesce(old.valid_until, toString(datetime())),
+                    old.superseded_by = $new_id,
+                    old.salience = 0.0
+                """,
+                old_id=old_atom_id,
+                new_id=new_atom_id,
+                reason=reason,
+            )
         return True
 
     def supersede(self, old_ref: str, new_fact: str, reason: str, source_refs: list[str]) -> bool:

@@ -63,3 +63,25 @@ def reflect(payload_json: str) -> None:
     """Submit a ReflectionPayload JSON document."""
     payload = ReflectionPayload(**json.loads(payload_json))
     emit(MemoryRouter().reflect(payload))
+
+
+@app.command()
+def atoms(
+    query: str | None = None,
+    limit: int = 20,
+    include_superseded: bool = False,
+) -> None:
+    """List or search typed atomic memories."""
+    emit(
+        MemoryRouter().list_atoms(
+            query=query,
+            limit=limit,
+            include_superseded=include_superseded,
+        )
+    )
+
+
+@app.command()
+def consolidate(dry_run: bool = True) -> None:
+    """Merge near-duplicate atomic memories (dry-run by default)."""
+    emit(MemoryRouter().consolidate(dry_run=dry_run))

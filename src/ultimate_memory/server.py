@@ -104,6 +104,30 @@ def memory_supersede(
     )
 
 
+@mcp.tool()
+def memory_atoms(
+    query: str | None = None,
+    memory_types: list[str] | None = None,
+    project_path: str | None = None,
+    limit: Annotated[int, "1 to 50"] = 20,
+    include_superseded: bool = False,
+) -> dict:
+    """List or search typed atomic memories (facts/decisions/preferences/procedures)."""
+    return router.list_atoms(
+        query=query,
+        memory_types=memory_types,
+        project_path=project_path,
+        limit=max(1, min(limit, 50)),
+        include_superseded=include_superseded,
+    )
+
+
+@mcp.tool()
+def memory_consolidate(dry_run: bool = True) -> dict:
+    """Merge near-duplicate atomic memories. Defaults to dry_run=True for safety."""
+    return router.consolidate(dry_run=dry_run)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ultimate Memory MCP router")
     parser.add_argument(

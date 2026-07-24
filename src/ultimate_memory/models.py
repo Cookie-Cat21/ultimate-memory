@@ -61,6 +61,31 @@ class ReflectionPayload(BaseModel):
     open_questions: list[str] = Field(default_factory=list)
 
 
+class AtomicMemory(BaseModel):
+    """Typed, bi-temporal, salience-tracked memory unit."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    text: str
+    memory_type: MemoryType
+    project_path: str | None = None
+    entities: list[str] = Field(default_factory=list)
+    source_refs: list[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    valid_from: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    valid_until: str | None = None
+    superseded_by: str | None = None
+    salience: float = 0.5
+    access_count: int = 0
+    last_accessed: str | None = None
+    importance: float = 0.5
+    content_hash: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def is_active(self) -> bool:
+        return self.valid_until is None and self.superseded_by is None
+
+
 class AuditEvent(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     action: str
