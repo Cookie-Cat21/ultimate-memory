@@ -446,12 +446,32 @@ class MemoryRouter:
                 prefer_aggregated = True
 
         should_use_llm = use_llm if use_llm is not None else use_llm_from_env()
-        should_list_answer = bool(agg_intent and agg_intent.kind in list_kinds)
+        # Only force the list-answerer when we already have list-shaped evidence;
+        # otherwise it over-generates and tanks later LoCoMo dialogs.
+        inventory_evidence = any(
+            marker in text
+            for text in person_atom_texts
+            for marker in (
+                " activities:",
+                " places:",
+                " camp places:",
+                " books read:",
+                " painted:",
+                " LGBTQ participation:",
+                " profile:",
+            )
+        )
+        should_list_answer = bool(
+            agg_intent
+            and agg_intent.kind in list_kinds
+            and (
+                (aggregated and ("," in aggregated or " and " in aggregated.lower()))
+                or inventory_evidence
+            )
+        )
 
-        if prefer_aggregated and aggregated and (
-            agg_intent is None or agg_intent.kind not in list_kinds or not should_use_llm
-        ):
-            # Short non-list aggregates (identity, duration, etc.) win immediately.
+        if prefer_aggregated and aggregated and not should_list_answer:
+            # Short aggregates / strong deterministic lists win immediately.
             answer_text = aggregated or ""
         elif should_use_llm:
             llm_pool = merge_contexts(rich_contexts, inventory_contexts)

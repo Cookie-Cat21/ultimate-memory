@@ -27,43 +27,58 @@ LoCoMo category IDs: 1=multi_hop, 2=temporal, 3=open_domain, 4=single_hop, 5=adv
 
 | Metric | Score |
 |---|---|
-| Token F1 | **93.4%** |
+| Token F1 | **~93%+** |
 | Constraint accuracy | **100%** |
 
-Perfect on: fact recall, knowledge update, contradiction, temporal “used to”, multi-hop, procedure, decision, distractor flood, dialogue extract.
+### LoCoMo dialog-1 + `google/flan-t5-large`
 
-### LoCoMo dialog-1 + local LLM (`google/flan-t5-base`, `--llm`)
+| Category | Ours | A-MEM | Result |
+|---|---:|---:|---|
+| single_hop | **33.3** | 27.02 | beats |
+| multi_hop | **60.0** | 45.85 | beats |
+| temporal | **23.4** | 12.14 | beats |
+| open_domain | **96.2** | 44.65 | beats |
 
-| Category | Ours (F1) | A-MEM | MemGPT | Result |
+### LoCoMo first-3 dialogs + list-answer path + `flan-t5-large`
+
+| Category | Ours | A-MEM | MemGPT | Result |
 |---|---:|---:|---:|---|
-| single_hop | **31.1** | 27.02 | 26.65 | beats both |
-| multi_hop | **70.2** | 45.85 | 25.52 | beats both |
-| temporal | **18.9** | 12.14 | 9.15 | beats both |
-| open_domain | **100.0** | 44.65 | 41.04 | beats both |
+| single_hop | **31.4** | 27.02 | 26.65 | beats both |
+| multi_hop | **35.8** | 45.85 | 25.52 | beats MemGPT; chasing A-MEM |
+| temporal | **33.9** | 12.14 | 9.15 | beats both |
+| open_domain | **82.3** | 44.65 | 41.04 | beats both |
 
-Overall dialog-1 token F1 ≈ **42.3** (152 questions, adversarial skipped).
+### Full LoCoMo-10 + `flan-t5-large` (prior to list-answer path)
 
-### What drives the wins
+| Category | Ours | A-MEM | Result |
+|---|---:|---:|---|
+| single_hop | **36.5** | 27.02 | beats |
+| multi_hop | 24.2 | 45.85 | behind (beats MemoryBank/ReadAgent) |
+| temporal | **33.1** | 12.14 | beats |
+| open_domain | 32.4 | 44.65 | behind (beats MemoryBank/ReadAgent) |
+
+Full 10-dialog rerun with the dedicated list-answer path is in progress / reported in `evals/results/locomo.json`.
+
+## What drives the wins
 
 - Atomic bi-temporal memories + observation/event inventories
-- Multi-fact aggregation for list-style multi-hop QA
-- Open-domain hypothetical synthesis grounded in retrieved evidence
-- Hybrid local LLM + extractive absolute-date preference for temporal/single-hop
-- Dialogue-turn indexing including shared-book media hints
+- Multi-fact aggregation for identity/duration/hypotheticals
+- Dedicated comma-list LLM answerer over wide person-atom windows
+- Hybrid absolute-date preference for temporal QA
+- Dialogue-turn indexing with shared-book media hints
+- Local `flan-t5-large` answerer (no paid API)
 
 ## How to run
 
 ```bash
 uv sync --extra dev --extra llm
 uv run python evals/run_benchmarks.py --suite synthetic
-uv run python evals/run_benchmarks.py --suite locomo --max-dialogs 1 --llm
-uv run python evals/run_benchmarks.py --suite locomo --llm   # full 10 dialogs
+uv run python evals/run_benchmarks.py --suite locomo --max-dialogs 1 --llm --model google/flan-t5-large
+uv run python evals/run_benchmarks.py --suite locomo --llm --model google/flan-t5-large
 ```
-
-Artifacts land in `evals/results/` (gitignored workdirs).
 
 ## Honesty notes
 
-- A-MEM/MemGPT numbers use GPT-4o-mini; we use local `flan-t5-base` + deterministic aggregation.
+- A-MEM/MemGPT numbers use GPT-4o-mini; we use local HF seq2seq + deterministic aggregation.
 - Mem0 peer-reviewed LoCoMo J ≈ 67–68%; vendor 90%+ J figures need the same judge protocol.
-- Adversarial (cat 5) skipped by default; enable by turning off `skip_adversarial`.
+- Adversarial (cat 5) skipped by default.
