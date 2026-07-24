@@ -510,8 +510,9 @@ class MemoryRouter:
                 prefer_aggregated = True
 
         should_use_llm = use_llm if use_llm is not None else use_llm_from_env()
-        # Force list-answerer for inventory-union whenever we have person atoms;
-        # harvest ∪ LLM recovers multi-span golds that extractive single-span misses.
+        # List-merge is ONLY for generic inventory_union. Specialized collectors
+        # (activities/books/lgbtq/…) must not be diluted by harvest∪LLM junk —
+        # that regressed dialog-1 multi-hop from ~66 → ~37.
         inventory_evidence = any(
             marker in text
             for text in person_atom_texts
@@ -540,11 +541,11 @@ class MemoryRouter:
         )
         should_list_answer = bool(
             agg_intent
-            and agg_intent.kind in list_kinds
+            and agg_intent.kind == "inventory_union"
             and (
                 (aggregated and ("," in aggregated or " and " in aggregated.lower()))
                 or inventory_evidence
-                or (agg_intent.kind == "inventory_union" and len(person_atom_texts) >= 2)
+                or len(person_atom_texts) >= 2
             )
         )
 
