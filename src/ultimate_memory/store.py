@@ -1,12 +1,62 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import Iterable
 
-from .atoms import compute_salience, content_hash, now_iso
+from .atoms import atom_valid_at, compute_salience, content_hash, now_iso, tokenize
 from .models import AtomicMemory, AuditEvent, MemoryType
+
+_FTS_QUERY_STOP = frozenset(
+    {
+        "where",
+        "what",
+        "when",
+        "who",
+        "how",
+        "why",
+        "did",
+        "does",
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "that",
+        "this",
+        "used",
+        "use",
+        "live",
+        "lives",
+        "lived",
+        "was",
+        "were",
+        "are",
+        "have",
+        "has",
+        "had",
+    }
+)
+
+
+def _atom_fts_query_variants(query: str) -> list[str]:
+    """Build FTS5-safe query variants for natural-language atom search."""
+    stripped = query.strip()
+    variants: list[str] = []
+    if stripped:
+        variants.append(stripped)
+    terms: list[str] = []
+    for match in re.finditer(r"[a-zA-Z]{3,}", stripped):
+        token = match.group(0).lower()
+        if token not in _FTS_QUERY_STOP:
+            terms.append(token)
+    if terms:
+        or_query = " OR ".join(dict.fromkeys(terms))
+        if or_query not in variants:
+            variants.append(or_query)
+    return variants
 
 
 class LocalStore:
@@ -186,6 +236,10 @@ class LocalStore:
     def upsert_atom(self, atom: AtomicMemory) -> AtomicMemory:
         if not atom.content_hash:
             atom.content_hash = content_hash(atom.text)
+        if atom.event_time:
+            atom.metadata["event_time"] = atom.event_time
+        elif atom.metadata.get("event_time"):
+            atom.event_time = atom.metadata["event_time"]
         atom.salience = compute_salience(
             atom.memory_type.value,
             created_at=atom.created_at,
@@ -263,9 +317,14 @@ class LocalStore:
         memory_types: list[str] | None = None,
         project_path: str | None = None,
         limit: int = 100,
+        as_of: str | None = None,
     ) -> list[AtomicMemory]:
-        clauses = ["valid_until is null", "superseded_by is null"]
-        params: list[object] = []
+        if as_of:
+            clauses = ["valid_from <= ?", "(valid_until is null or valid_until > ?)"]
+            params: list[object] = [as_of, as_of]
+        else:
+            clauses = ["valid_until is null", "superseded_by is null"]
+            params = []
         if memory_types:
             placeholders = ",".join("?" for _ in memory_types)
             clauses.append(f"memory_type in ({placeholders})")
@@ -291,37 +350,55 @@ class LocalStore:
         limit: int = 8,
         memory_types: list[str] | None = None,
         include_superseded: bool = False,
+        as_of: str | None = None,
     ) -> list[AtomicMemory]:
         if not query.strip():
             return []
         atoms: list[AtomicMemory] = []
+        rows: list[sqlite3.Row] = []
         with self._connect() as conn:
-            try:
-                rows = conn.execute(
-                    """
-                    select a.*
-                    from memory_atoms_fts f
-                    join memory_atoms a on a.id = f.id
-                    where memory_atoms_fts match ?
-                    order by bm25(memory_atoms_fts)
-                    limit ?
-                    """,
-                    (query, max(limit * 4, 16)),
-                ).fetchall()
-            except sqlite3.OperationalError:
-                rows = conn.execute(
-                    """
-                    select * from memory_atoms
-                    where text like ?
-                    order by salience desc
-                    limit ?
-                    """,
-                    (f"%{query}%", max(limit * 4, 16)),
-                ).fetchall()
+            for fts_query in _atom_fts_query_variants(query):
+                try:
+                    candidate_rows = conn.execute(
+                        """
+                        select a.*
+                        from memory_atoms_fts f
+                        join memory_atoms a on a.id = f.id
+                        where memory_atoms_fts match ?
+                        order by bm25(memory_atoms_fts)
+                        limit ?
+                        """,
+                        (fts_query, max(limit * 4, 16)),
+                    ).fetchall()
+                except sqlite3.OperationalError:
+                    continue
+                if candidate_rows:
+                    rows = candidate_rows
+                    break
+            if not rows:
+                like_terms = [
+                    t
+                    for t in re.findall(r"[a-zA-Z]{3,}", query)
+                    if t.lower() not in _FTS_QUERY_STOP
+                ]
+                if like_terms:
+                    pattern = f"%{like_terms[0]}%"
+                    rows = conn.execute(
+                        """
+                        select * from memory_atoms
+                        where text like ?
+                        order by salience desc
+                        limit ?
+                        """,
+                        (pattern, max(limit * 4, 16)),
+                    ).fetchall()
         allowed = set(memory_types or [])
         for row in rows:
             atom = self._row_to_atom(row)
-            if not include_superseded and not atom.is_active:
+            if as_of:
+                if not atom_valid_at(atom, as_of):
+                    continue
+            elif not include_superseded and not atom.is_active:
                 continue
             if allowed and atom.memory_type.value not in allowed:
                 continue
@@ -511,6 +588,8 @@ class LocalStore:
 
     @staticmethod
     def _row_to_atom(row: sqlite3.Row) -> AtomicMemory:
+        metadata = json.loads(row["metadata_json"] or "{}")
+        event_time = metadata.get("event_time")
         return AtomicMemory(
             id=row["id"],
             text=row["text"],
@@ -521,11 +600,12 @@ class LocalStore:
             created_at=row["created_at"],
             valid_from=row["valid_from"],
             valid_until=row["valid_until"],
+            event_time=event_time,
             superseded_by=row["superseded_by"],
             salience=float(row["salience"]),
             access_count=int(row["access_count"]),
             last_accessed=row["last_accessed"],
             importance=float(row["importance"]),
             content_hash=row["content_hash"],
-            metadata=json.loads(row["metadata_json"] or "{}"),
+            metadata=metadata,
         )

@@ -14,10 +14,13 @@ from .atoms import (
     blend_scores,
     contradiction_score,
     group_near_duplicates,
+    is_temporal_query,
     now_iso,
+    parse_iso,
 )
 from .chunking import chunk_text
 from .config import Settings, load_settings
+from .extraction import extract_from_transcript
 from .models import (
     AtomicMemory,
     AuditEvent,
@@ -28,12 +31,6 @@ from .models import (
     safe_slug,
 )
 from .store import LocalStore
-
-# Phrases that signal extractable knowledge in session transcripts.
-_DECISION_SIGNALS = ("decided to", "decision:", "we chose", "going with", "will use", "switching to", "the approach is")
-_PREFERENCE_SIGNALS = ("prefer ", "preference:", "always ", "never ", "i like", "i don't like", "i want", "please avoid")
-_PROCEDURE_SIGNALS = ("steps:", "to do:", "procedure:", "how to ", "the process is", "to fix this")
-_FACT_SIGNALS = ("the fix was", "the issue was", "root cause", "turns out", "note that", "important:", "the problem is", "bug:")
 
 
 class MemoryRouter:
@@ -115,9 +112,14 @@ class MemoryRouter:
         limit: int | None = None,
         tags: list[str] | None = None,
         include_superseded: bool = False,
+        as_of: str | None = None,
     ) -> dict:
         actual_limit = limit or self.settings.retrieval.default_limit
         self.store.refresh_salience(limit=200)
+
+        temporal_query = as_of is None and is_temporal_query(query)
+        if temporal_query:
+            include_superseded = True
 
         # --- run all five sources in parallel --------------------------------
         def _vector():
@@ -153,6 +155,8 @@ class MemoryRouter:
                 limit=actual_limit,
                 memory_types=memory_types,
                 include_superseded=include_superseded,
+                as_of=as_of,
+                prefer_older_valid_from=temporal_query,
             )
 
         def _graph():
@@ -189,6 +193,8 @@ class MemoryRouter:
                 result.provenance["requested_project_path"] = project_path
         return {
             "query": query,
+            "as_of": as_of,
+            "temporal_query": temporal_query,
             "mode": self.health()["mode"],
             "results": [result.model_dump() for result in results],
             "graph_hits": graph_hits[:5],
@@ -276,6 +282,7 @@ class MemoryRouter:
         tags: list[str] | None = None,
     ) -> dict:
         source_text, source_kind = self._read_transcript_or_path(transcript_or_path)
+        event_time = self._extract_transcript_event_time(source_text)
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         safe_client = safe_slug(client, "client")
         safe_session = safe_slug(session_id, "session")
@@ -329,10 +336,15 @@ class MemoryRouter:
 
         # --- auto-extract learnings and reflect them into durable memory -----
         reflection_result: dict | None = None
-        reflection_payload = self._extract_reflection(source_text, session_id, project_path)
-        if reflection_payload is not None:
+        extraction = extract_from_transcript(source_text, session_id, project_path)
+        if extraction.payload is not None:
             try:
-                reflection_result = self.reflect(reflection_payload, project_path=project_path)
+                reflection_result = self.reflect(
+                    extraction.payload,
+                    project_path=project_path,
+                    event_time=event_time,
+                    extracted_entities=extraction.entities,
+                )
             except Exception:
                 pass
 
@@ -358,7 +370,14 @@ class MemoryRouter:
             "reflection": reflection_result,
         }
 
-    def reflect(self, payload: ReflectionPayload, project_path: str | None = None) -> dict:
+    def reflect(
+        self,
+        payload: ReflectionPayload,
+        project_path: str | None = None,
+        event_time: str | None = None,
+        *,
+        extracted_entities: list[str] | None = None,
+    ) -> dict:
         timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H%M%S")
         title = self._smart_title(payload, timestamp)
         folder = "research/agent-memory/reflections"
@@ -369,6 +388,8 @@ class MemoryRouter:
             payload.facts + payload.decisions + payload.preferences + payload.procedures
         )
         entity_links = self._entity_links(reflection_text, note_titles)
+        if extracted_entities:
+            entity_links = list(dict.fromkeys(entity_links + extracted_entities))
 
         content = self._reflection_markdown(
             title, payload, project_path=project_path, entity_links=entity_links
@@ -383,6 +404,7 @@ class MemoryRouter:
             payload,
             project_path=project_path,
             entities=entity_links,
+            event_time=event_time,
         )
 
         result = {
@@ -531,6 +553,7 @@ class MemoryRouter:
         query: str | None = None,
         limit: int = 20,
         include_superseded: bool = False,
+        as_of: str | None = None,
     ) -> dict:
         if query:
             atoms = self.store.search_atoms(
@@ -538,14 +561,16 @@ class MemoryRouter:
                 limit=limit,
                 memory_types=memory_types,
                 include_superseded=include_superseded,
+                as_of=as_of,
             )
         else:
             atoms = self.store.list_active_atoms(
                 memory_types=memory_types,
                 project_path=project_path,
                 limit=limit,
+                as_of=as_of,
             )
-            if include_superseded:
+            if include_superseded and as_of is None:
                 # Active list already filters; for superseded browse use search with "*".
                 pass
         return {
@@ -626,11 +651,14 @@ class MemoryRouter:
         *,
         project_path: str | None,
         entities: list[str],
+        event_time: str | None = None,
     ) -> dict:
         atoms = atoms_from_reflection(
             payload,
             project_path=project_path,
             entities=entities,
+            created_at=event_time,
+            event_time=event_time,
         )
         created: list[str] = []
         duplicates: list[str] = []
@@ -732,17 +760,28 @@ class MemoryRouter:
         limit: int,
         memory_types: list[str] | None,
         include_superseded: bool,
+        as_of: str | None = None,
+        prefer_older_valid_from: bool = False,
     ) -> list[SearchResult]:
         atoms = self.store.search_atoms(
             query,
-            limit=limit,
+            limit=limit if not prefer_older_valid_from else max(limit * 2, 16),
             memory_types=memory_types,
             include_superseded=include_superseded,
+            as_of=as_of,
         )
-        return [
+        if prefer_older_valid_from:
+            atoms.sort(key=lambda a: (parse_iso(a.valid_from) or datetime.min.replace(tzinfo=UTC)))
+        results = [
             self._atom_to_search_result(atom, score=max(atom.salience, 0.35))
             for atom in atoms
         ]
+        if prefer_older_valid_from:
+            for result in results:
+                result.score = min(result.score + 0.12, 1.0)
+                result.provenance["temporal_preference"] = "older_valid_from"
+            results.sort(key=lambda r: r.provenance.get("valid_from", ""))
+        return results[:limit]
 
     @staticmethod
     def _atom_to_search_result(atom: AtomicMemory, *, score: float) -> SearchResult:
@@ -758,6 +797,7 @@ class MemoryRouter:
                 "salience": atom.salience,
                 "valid_from": atom.valid_from,
                 "valid_until": atom.valid_until,
+                "event_time": atom.event_time,
                 "superseded_by": atom.superseded_by,
                 "access_count": atom.access_count,
                 "entities": atom.entities,
@@ -853,61 +893,8 @@ class MemoryRouter:
         session_id: str,
         project_path: str | None,
     ) -> ReflectionPayload | None:
-        """Parse a transcript for high-signal phrases and build a ReflectionPayload.
-
-        Returns None when the transcript doesn't contain enough signal to be
-        worth auto-reflecting (avoids polluting Obsidian with noise).
-        """
-        facts: list[str] = []
-        decisions: list[str] = []
-        preferences: list[str] = []
-        procedures: list[str] = []
-
-        seen: set[str] = set()
-
-        def _add(bucket: list[str], line: str) -> None:
-            norm = re.sub(r"\s+", " ", line.strip())[:220]
-            if norm and norm not in seen and len(norm) >= 20:
-                seen.add(norm)
-                bucket.append(norm)
-
-        for raw_line in text.splitlines():
-            line = raw_line.strip()
-            lower = line.lower()
-
-            if any(sig in lower for sig in _DECISION_SIGNALS):
-                _add(decisions, line)
-            elif any(sig in lower for sig in _PREFERENCE_SIGNALS):
-                _add(preferences, line)
-            elif any(sig in lower for sig in _PROCEDURE_SIGNALS):
-                _add(procedures, line)
-            elif any(sig in lower for sig in _FACT_SIGNALS):
-                _add(facts, line)
-
-        # Cap per category to avoid runaway reflections
-        facts = facts[:6]
-        decisions = decisions[:6]
-        preferences = preferences[:4]
-        procedures = procedures[:4]
-
-        total_signals = len(facts) + len(decisions) + len(preferences) + len(procedures)
-        if total_signals < 1:
-            return None
-
-        project_name = Path(project_path).name if project_path else "session"
-        summary = (
-            f"Auto-extracted from {project_name} session {session_id[:20]}. "
-            f"{total_signals} signals: {len(decisions)} decisions, {len(facts)} facts, "
-            f"{len(preferences)} preferences, {len(procedures)} procedures."
-        )
-        return ReflectionPayload(
-            summary=summary,
-            facts=facts,
-            decisions=decisions,
-            preferences=preferences,
-            procedures=procedures,
-            source_refs=[f"session:{session_id}"],
-        )
+        """Parse a transcript and build a ReflectionPayload (heuristic + keyword fallback)."""
+        return extract_from_transcript(text, session_id, project_path).payload
 
     # ------------------------------------------------------------------
     # Helpers
@@ -940,6 +927,32 @@ class MemoryRouter:
             packet.append(item)
             used += len(text)
         return packet
+
+    @staticmethod
+    def _extract_transcript_event_time(text: str) -> str | None:
+        """Best-effort parse of session date from transcript headers / frontmatter."""
+        lines = text.splitlines()
+        in_frontmatter = False
+        for line in lines[:40]:
+            stripped = line.strip()
+            if stripped == "---":
+                in_frontmatter = not in_frontmatter
+                continue
+            lower = stripped.lower()
+            for key in ("created_at:", "session_date:", "date:", "event_time:"):
+                if lower.startswith(key):
+                    value = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+                    if value and parse_iso(value):
+                        return value
+            if not in_frontmatter and stripped and not stripped.startswith("#"):
+                # Free-text header like "Session 2024-06-15"
+                match = re.search(
+                    r"\b(20\d{2}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?)?)\b",
+                    stripped,
+                )
+                if match and parse_iso(match.group(1)):
+                    return match.group(1)
+        return None
 
     @staticmethod
     def _read_transcript_or_path(transcript_or_path: str) -> tuple[str, str]:

@@ -73,6 +73,7 @@ class AtomicMemory(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     valid_from: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     valid_until: str | None = None
+    event_time: str | None = None
     superseded_by: str | None = None
     salience: float = 0.5
     access_count: int = 0

@@ -30,9 +30,16 @@ def memory_search(
     project_path: str | None = None,
     memory_types: list[str] | None = None,
     limit: int | None = None,
+    as_of: str | None = None,
 ) -> dict:
     """Search Basic Memory, local full logs, vector memory, and graph memory."""
-    return router.search(query=query, project_path=project_path, memory_types=memory_types, limit=limit)
+    return router.search(
+        query=query,
+        project_path=project_path,
+        memory_types=memory_types,
+        limit=limit,
+        as_of=as_of,
+    )
 
 
 @mcp.tool()
