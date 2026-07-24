@@ -370,8 +370,8 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         return AggregateIntent("beach_count", person)
     if re.search(r"\bhow many children\b|\bhow many kids\b", q_lower):
         return AggregateIntent("children_count", person)
-    if re.search(r"\bhow many\b", q_lower):
-        return AggregateIntent("how_many", person, topic=_head_noun(q) or q_lower)
+    # Generic how_many / both_intersection are easy to misfire on later dialogs;
+    # keep only the high-precision specialized counters above (beach/children).
     if re.search(r"\bboth\b|\bin common\b", q_lower) and len(_all_persons(q)) >= 2:
         return AggregateIntent(
             "both_intersection",
@@ -389,25 +389,17 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         q_lower,
     ):
         return AggregateIntent("hypothetical", person, topic=q_lower)
-    # Generic multi-hop inventory — list-shaped heads mined from LoCoMo multi-hop.
+    # Inventory-union detection is intentionally narrow: only clear plural list heads
+    # that our collectors handle well (avoids stealing single-hop / noisy later dialogs).
     list_head = re.search(
         r"\b(?:what|which)\s+"
-        r"(?:outdoor\s+|european\s+|writing\s+|transgender-specific\s+|lgbtq\+?\s+)?"
-        r"(cities|countries|states|places|books|book|activities|activity|events|event|"
-        r"hobbies|interests|games|songs|movies|shows|recipes|gifts|items|things|"
-        r"sports|instruments|pets|dogs|cats|kids|children|friends|people|"
-        r"restaurants|parks|trips|classes|courses|programs|organizations|groups|"
-        r"bands|artists|subjects|symbols|changes|types|kinds|names|desserts|"
-        r"shelters|causes|damages|tests?|martial arts|yoga)"
+        r"(cities|countries|states|places|books|activities|events|games|recipes|"
+        r"gifts|instruments|pets|desserts|shelters)"
         r"\b",
         q_lower,
-    ) or re.search(r"\bwhat (?:kind|type|types) of\b", q_lower)
+    )
     if list_head:
-        head = _head_noun(q) or (
-            list_head.group(1) if list_head.lastindex else "items"
-        )
-        if head and head not in {"subject", "identity", "relationship status", "career path"}:
-            return AggregateIntent("inventory_union", person, topic=str(head))
+        return AggregateIntent("inventory_union", person, topic=list_head.group(1))
     if re.search(r"\bwould\b|\blikely\b|\bmight\b", q_lower) and re.search(
         r"\b(?:would|likely|might|considered|interested|enjoy|pursue|want)\b",
         q_lower,
