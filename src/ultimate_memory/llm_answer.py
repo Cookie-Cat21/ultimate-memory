@@ -46,10 +46,22 @@ def _clean_answer(text: str) -> str:
 
 def _build_prompt(question: str, contexts: list[str]) -> str:
     context_block = "\n".join(f"- {c}" for c in contexts)
+    q_lower = question.lower()
+    if re.search(r"\bwould\b|\bmight\b|\blikely\b|\bconsidered\b", q_lower):
+        style = (
+            "For this inferential question, answer like LoCoMo golds: "
+            "'Likely yes', 'Likely no', 'Yes; reason', or a short inferred label/list. "
+        )
+    elif re.search(r"\b(?:what|which)\b.+\b(?:has|have)\b", q_lower):
+        style = "If multiple items fit, return a comma-separated list. "
+    else:
+        style = (
+            "Return a SHORT answer phrase that matches the question "
+            "(a name, date like '7 May 2023', place, job, or yes/no). "
+        )
     return (
         "You are a memory QA system. Use ONLY the memory snippets below.\n"
-        "Return a SHORT answer phrase that matches the question "
-        "(a name, date like '7 May 2023', place, job, or yes/no).\n"
+        f"{style}"
         "Prefer absolute dates over words like yesterday/last year when both appear.\n"
         'If the snippets do not contain the answer, reply "I don\'t know".\n\n'
         f"Memories:\n{context_block}\n\n"

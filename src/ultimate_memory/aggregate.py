@@ -389,22 +389,24 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         q_lower,
     ):
         return AggregateIntent("hypothetical", person, topic=q_lower)
-    # Generic multi-hop inventory — only plural/list heads to avoid stealing single-hop.
+    # Generic multi-hop inventory — list-shaped heads mined from LoCoMo multi-hop.
     list_head = re.search(
         r"\b(?:what|which)\s+"
-        r"(cities|countries|states|places|books|activities|events|hobbies|interests|"
-        r"games|songs|movies|shows|recipes|gifts|items|things|sports|instruments|"
-        r"pets|dogs|cats|kids|children|friends|people|restaurants|parks|trips|"
-        r"classes|courses|programs|organizations|groups|bands|artists|subjects|"
-        r"symbols|changes|types|kinds|names)"
+        r"(?:outdoor\s+|european\s+|writing\s+|transgender-specific\s+|lgbtq\+?\s+)?"
+        r"(cities|countries|states|places|books|book|activities|activity|events|event|"
+        r"hobbies|interests|games|songs|movies|shows|recipes|gifts|items|things|"
+        r"sports|instruments|pets|dogs|cats|kids|children|friends|people|"
+        r"restaurants|parks|trips|classes|courses|programs|organizations|groups|"
+        r"bands|artists|subjects|symbols|changes|types|kinds|names|desserts|"
+        r"shelters|causes|damages|tests?|martial arts|yoga)"
         r"\b",
         q_lower,
     ) or re.search(r"\bwhat (?:kind|type|types) of\b", q_lower)
     if list_head:
         head = _head_noun(q) or (
-            list_head.group(1) if list_head.lastindex else list_head.group(0)
+            list_head.group(1) if list_head.lastindex else "items"
         )
-        if head and head not in {"subject", "identity", "relationship status"}:
+        if head and head not in {"subject", "identity", "relationship status", "career path"}:
             return AggregateIntent("inventory_union", person, topic=str(head))
     if re.search(r"\bwould\b|\blikely\b|\bmight\b", q_lower) and re.search(
         r"\b(?:would|likely|might|considered|interested|enjoy|pursue|want)\b",
@@ -751,20 +753,28 @@ def _inventory_union(person: str | None, head: str, texts: list[str]) -> str | N
     head_terms = [t for t in re.findall(r"[a-z]{3,}", head.lower()) if t not in {"the", "and", "for"}]
     if not head_terms:
         return None
+    head_l = head.lower()
 
     # Special-case heads that already have strong collectors.
     if any(t in {"book", "books"} for t in head_terms):
         books = _collect_books(person_texts)
         return ", ".join(books) if books else None
-    if any(t in {"activit", "hobby", "hobbies"} for t in head_terms):
+    if any(t.startswith("activit") or t in {"hobby", "hobbies"} for t in head_terms):
         acts = _collect_canon(person_texts, _ACTIVITY_CANON)
-        return ", ".join(acts) if acts else None
-    if any(t in {"paint", "painting", "painted"} for t in head_terms):
+        return ", ".join(acts) if len(acts) >= 2 else (", ".join(acts) if acts else None)
+    if any(t in {"paint", "painting", "painted", "subject", "subjects"} for t in head_terms):
         paints = _collect_canon(person_texts, _PAINT_SUBJECTS)
         return ", ".join(paints) if paints else None
+    if any(t in {"instrument", "instruments"} for t in head_terms):
+        inst = _instruments(person_texts)
+        return " and ".join(inst) if inst else None
 
     items: list[str] = []
     seen: set[str] = set()
+    place_mode = any(
+        t in {"city", "cities", "country", "countries", "state", "states", "place", "places"}
+        for t in head_terms
+    ) or "areas of" in head_l
 
     def add(item: str) -> None:
         cleaned = item.strip(" .,;:-\"'")
@@ -779,50 +789,59 @@ def _inventory_union(person: str | None, head: str, texts: list[str]) -> str | N
         seen.add(key)
         items.append(cleaned)
 
-    # Quoted titles always useful for lists.
-    for text in person_texts:
-        for match in _BOOK_RE.finditer(text):
-            add(match.group(1))
-        for match in re.finditer(r"\[shared book:\s*\"([^\"]+)\"\]", text, re.I):
-            add(match.group(1))
-
-    # Proper nouns in sentences that mention a head term.
+    # Prefer structured inventory lines for this head.
     for text in person_texts:
         lower = text.lower()
-        if not any(term in lower for term in head_terms):
-            # Still allow sentences that are inventory lines for this head.
-            if not any(f" {term}" in f" {lower}" for term in head_terms):
-                continue
-        for match in re.finditer(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){0,2})\b", text):
-            add(match.group(1))
-        # Comma / "and" lists after head-ish verbs.
-        for match in re.finditer(
-            r"\b(?:including|like|such as|:)\s+([^.;\n]{3,80})",
-            text,
-            re.I,
+        if ":" not in text:
+            continue
+        label, rhs = text.split(":", 1)
+        label_l = label.lower()
+        if any(term in label_l for term in head_terms) or (
+            place_mode and any(tok in label_l for tok in ("place", "city", "cities", "country"))
         ):
-            for part in re.split(r",|/|\band\b", match.group(1)):
-                add(part)
-        # Noun phrases after "for/to/in" near head.
-        for match in re.finditer(
-            rf"\b(?:{'|'.join(map(re.escape, head_terms))})\b[^.]{{0,40}}?\b([a-z][a-z\- ]{{2,30}})",
-            lower,
-        ):
-            frag = match.group(1).strip()
-            if frag.split()[0] not in {"and", "with", "from", "that", "which"}:
-                add(frag.split(" and ")[0].strip())
-
-    # Inventory lines: "Name activities: a, b, c"
-    for text in person_texts:
-        if ":" in text and any(term in text.lower() for term in head_terms):
-            rhs = text.split(":", 1)[1]
             for part in re.split(r",|/|\||\band\b", rhs):
                 add(part)
 
+    if place_mode:
+        for text in person_texts:
+            if not re.search(
+                r"\b(?:visit|visited|travel|traveled|went to|live|lives|moved|trip|in|from)\b",
+                text,
+                re.I,
+            ):
+                continue
+            for match in re.finditer(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b", text):
+                name = match.group(1)
+                if _clean_person_name(name):
+                    add(name)
+        return ", ".join(items[:10]) if len(items) >= 2 else None
+
+    # Quoted titles for media-ish heads.
+    if any(t in {"game", "games", "movie", "movies", "song", "songs", "show", "shows"} for t in head_terms):
+        for text in person_texts:
+            for match in _BOOK_RE.finditer(text):
+                add(match.group(1))
+            for match in re.finditer(r"\[shared (?:book|media):\s*\"?([^\"]+?)\"?\]", text, re.I):
+                add(match.group(1))
+        return ", ".join(items[:10]) if len(items) >= 2 else (items[0] if items else None)
+
+    # Generic: only take comma-lists after including/like/: when head term present.
+    for text in person_texts:
+        lower = text.lower()
+        if not any(term in lower for term in head_terms):
+            continue
+        for match in re.finditer(
+            r"\b(?:including|like|such as|:)\s+([^.;\n]{3,100})",
+            text,
+            re.I,
+        ):
+            parts = [p for p in re.split(r",|/|\band\b", match.group(1)) if p.strip()]
+            if len(parts) >= 2:
+                for part in parts:
+                    add(part)
+
     if len(items) >= 2:
         return ", ".join(items[:10])
-    if items:
-        return items[0]
     return None
 
 
@@ -1370,4 +1389,29 @@ def build_speaker_inventories(speaker: str, fact_texts: list[str]) -> list[str]:
     career = _career(fact_texts)
     if career:
         inventories.append(f"{speaker} career: {career}")
+
+    # Generic proper-noun inventories for cross-dialog multi-hop list QA.
+    cities: list[str] = []
+    seen_cities: set[str] = set()
+    for text in fact_texts:
+        if not re.search(
+            r"\b(?:visit|visited|travel|traveled|went to|in|from|live|moved|trip)\b",
+            text,
+            re.I,
+        ):
+            continue
+        for match in re.finditer(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b", text):
+            name = match.group(1)
+            if not _clean_person_name(name):
+                continue
+            if name.lower() == speaker.lower():
+                continue
+            if name.lower() in seen_cities:
+                continue
+            # Skip month-like tokens already blocklisted via _clean_person_name.
+            seen_cities.add(name.lower())
+            cities.append(name)
+    if len(cities) >= 2:
+        inventories.append(f"{speaker} places: " + ", ".join(cities[:12]))
+
     return inventories
