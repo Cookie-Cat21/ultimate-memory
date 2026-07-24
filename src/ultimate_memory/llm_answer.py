@@ -47,10 +47,21 @@ def _clean_answer(text: str) -> str:
 def _build_prompt(question: str, contexts: list[str]) -> str:
     context_block = "\n".join(f"- {c}" for c in contexts)
     q_lower = question.lower()
-    if re.search(r"\bwould\b|\bmight\b|\blikely\b|\bconsidered\b", q_lower):
+    starts_with_wh = bool(re.match(r"^(?:what|which|who|where|when|how)\b", q_lower))
+    yn_shape = bool(
+        re.match(r"^(?:would|is|are|was|were|does|did|has|have|can|could)\b", q_lower)
+        or re.search(r"\banswer yes or no\b", q_lower)
+    )
+    if yn_shape and not starts_with_wh:
         style = (
-            "For this inferential question, answer like LoCoMo golds: "
-            "'Likely yes', 'Likely no', 'Yes; reason', or a short inferred label/list. "
+            "For this yes/no or would-question, answer like LoCoMo golds: "
+            "'Likely yes', 'Likely no', 'Yes', 'No', or 'Yes; short reason'. "
+        )
+    elif starts_with_wh:
+        style = (
+            "Return the concrete answer span: a name, place, organization, technique, "
+            "holiday, job title, or comma-separated list. Do NOT answer with only "
+            "'Likely yes' or 'Likely no' unless the question is yes/no. "
         )
     elif re.search(r"\b(?:what|which)\b.+\b(?:has|have)\b", q_lower):
         style = "If multiple items fit, return a comma-separated list. "

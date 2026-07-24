@@ -434,6 +434,7 @@ class MemoryRouter:
             "personality",
             "education_fields",
             "how_many",
+            "entity_infer",
         }
         prefer_aggregated = False
         if aggregated and agg_intent is not None:
