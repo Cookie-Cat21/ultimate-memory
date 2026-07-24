@@ -113,6 +113,101 @@ class TestSynthesizeAnswer:
     def test_empty_contexts(self):
         assert synthesize_answer("Where?", []) == ""
 
+    def test_prefers_active_atom_over_stale_note_for_current_question(self):
+        contexts = [
+            {
+                "text": "Carol lives in New York.",
+                "memory_type": "note",
+                "score": 0.9,
+                "provenance": {"source": "sqlite-fts"},
+            },
+            {
+                "text": "Carol moved to Austin in 2024 for a new role.",
+                "memory_type": "fact",
+                "score": 0.7,
+                "provenance": {
+                    "source": "atomic-memory",
+                    "valid_until": None,
+                    "superseded_by": None,
+                },
+            },
+        ]
+        answer = synthesize_answer("Where does Carol live now?", contexts)
+        assert "Austin" in answer
+        assert "New York" not in answer
+
+    def test_skips_markdown_relation_junk(self):
+        contexts = [
+            "- mentions [[Caroline]]",
+            {
+                "text": "Caroline works remotely from Denver.",
+                "memory_type": "fact",
+                "score": 0.8,
+                "provenance": {"source": "atomic-memory", "valid_until": None},
+            },
+        ]
+        answer = synthesize_answer("Where does Caroline work from?", contexts)
+        assert "Denver" in answer
+        assert "mentions" not in answer.lower()
+        assert "[[" not in answer
+
+    def test_boosts_superseded_for_past_tense_question(self):
+        contexts = [
+            {
+                "text": "Carol lives in Austin.",
+                "memory_type": "fact",
+                "score": 0.85,
+                "provenance": {
+                    "source": "atomic-memory",
+                    "valid_until": None,
+                    "superseded_by": None,
+                },
+            },
+            {
+                "text": "Carol lived in New York before moving.",
+                "memory_type": "fact",
+                "score": 0.6,
+                "provenance": {
+                    "source": "atomic-memory",
+                    "valid_until": "2024-01-01T00:00:00+00:00",
+                    "superseded_by": "atom:other",
+                },
+            },
+        ]
+        answer = synthesize_answer("Where did Carol live before?", contexts)
+        assert "New York" in answer
+
+    def test_filters_reflection_markdown_sections(self):
+        junk_note = "\n".join(
+            [
+                "# Memory Reflection",
+                "",
+                "## Open Questions",
+                "- Will Carol relocate again?",
+                "",
+                "## Source Refs",
+                "- session:abc",
+                "",
+                "## Relations",
+                "- mentions [[Caroline]]",
+                "- relates_to [[Shared Goal]]",
+                "- from_project [[demo]]",
+            ]
+        )
+        contexts = [
+            junk_note,
+            {
+                "text": "Carol moved to Austin in 2024.",
+                "memory_type": "fact",
+                "score": 0.75,
+                "provenance": {"source": "atomic-memory", "valid_until": None},
+            },
+        ]
+        answer = synthesize_answer("Where does Carol live now?", contexts)
+        assert "Austin" in answer
+        assert "mentions" not in answer.lower()
+        assert "Open Questions" not in answer
+
 
 class TestMemoryRouterAnswer:
     def test_answer_wraps_search_and_synthesis(self, tmp_path):

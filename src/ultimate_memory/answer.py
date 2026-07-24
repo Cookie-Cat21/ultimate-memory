@@ -9,7 +9,7 @@ import re
 import string
 from collections import Counter
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 _STOPWORDS = frozenset(
     {
@@ -105,6 +105,22 @@ _WHEN_RE = re.compile(r"\bwhen\b|\bwhat\s+(?:year|date|month|day)\b", re.I)
 _WHERE_RE = re.compile(r"\bwhere\b", re.I)
 _WHO_RE = re.compile(r"\bwho(?:m)?\b", re.I)
 _WHAT_RE = re.compile(r"\bwhat\b", re.I)
+
+_JUNK_LINE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^#"),
+    re.compile(r"^-\s*mentions\b", re.I),
+    re.compile(r"^-\s*relates_to\b", re.I),
+    re.compile(r"^-\s*from_project\b", re.I),
+    re.compile(r"\[\["),
+    re.compile(r"^Source Refs\b", re.I),
+    re.compile(r"^Open Questions\b", re.I),
+    re.compile(r"^---\s*$"),
+)
+
+_CURRENT_CUES = ("now", "current", "currently", "today")
+_PAST_CUES = ("used to", "before", "previously")
+
+_PREFERRED_MEMORY_TYPES = frozenset({"fact", "preference", "decision", "procedure"})
 
 _AFFIRM_CUES = (
     "yes",
@@ -269,10 +285,110 @@ def _extract_who_spans(sentence: str) -> list[str]:
 
 
 @dataclass(frozen=True)
+class _ContextItem:
+    text: str
+    memory_type: str = "note"
+    provenance: dict[str, Any] | None = None
+    score: float = 0.0
+
+
+@dataclass(frozen=True)
 class _Candidate:
     text: str
     sentence: str
     score: float
+
+
+def _is_junk_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return True
+    return any(pattern.search(stripped) for pattern in _JUNK_LINE_PATTERNS)
+
+
+def _filter_context_text(text: str) -> str:
+    kept = [line for line in text.splitlines() if not _is_junk_line(line)]
+    return "\n".join(kept).strip()
+
+
+def _normalize_contexts(
+    contexts: list[str] | list[dict[str, Any]],
+) -> list[_ContextItem]:
+    items: list[_ContextItem] = []
+    for raw in contexts:
+        if isinstance(raw, str):
+            text = _filter_context_text(raw)
+            if text:
+                items.append(_ContextItem(text=text))
+            continue
+        text = _filter_context_text(str(raw.get("text") or ""))
+        if not text:
+            continue
+        items.append(
+            _ContextItem(
+                text=text,
+                memory_type=str(raw.get("memory_type") or "note"),
+                provenance=raw.get("provenance") if isinstance(raw.get("provenance"), dict) else {},
+                score=float(raw.get("score") or 0.0),
+            )
+        )
+    return items
+
+
+def _question_temporal_bias(question: str) -> Literal["current", "past", "neutral"]:
+    lower = question.lower()
+    if any(cue in lower for cue in _CURRENT_CUES):
+        return "current"
+    if any(cue in lower for cue in _PAST_CUES):
+        return "past"
+    return "neutral"
+
+
+def _context_metadata_bonus(item: _ContextItem, temporal_bias: Literal["current", "past", "neutral"]) -> float:
+    provenance = item.provenance or {}
+    bonus = 0.0
+
+    if provenance.get("source") == "atomic-memory":
+        bonus += 0.35
+
+    if item.memory_type in _PREFERRED_MEMORY_TYPES:
+        bonus += 0.15
+
+    if item.score > 0:
+        bonus += min(item.score * 0.12, 0.18)
+
+    valid_until = provenance.get("valid_until")
+    superseded_by = provenance.get("superseded_by")
+    is_active = valid_until is None and not superseded_by
+
+    if temporal_bias == "current":
+        if is_active:
+            bonus += 0.45
+        else:
+            bonus -= 0.55
+    elif temporal_bias == "past":
+        if not is_active or superseded_by:
+            bonus += 0.4
+        else:
+            bonus -= 0.25
+
+    return bonus
+
+
+def _is_usable_context(item: _ContextItem) -> bool:
+    text = item.text.strip()
+    if not text:
+        return False
+    if _is_junk_line(text):
+        return False
+    provenance = item.provenance or {}
+    if provenance.get("source") == "atomic-memory":
+        return True
+    if item.memory_type in _PREFERRED_MEMORY_TYPES and len(text) >= 8:
+        return True
+    if len(text) < 8 and not re.search(r"\b(19|20)\d{2}\b", text):
+        return False
+    return True
 
 
 def _overlap_score(question_words: set[str], text: str, entities: set[str]) -> float:
@@ -385,20 +501,32 @@ def _truncate(text: str, max_chars: int) -> str:
     return cut.rstrip(".,;:") + "..."
 
 
-def synthesize_answer(question: str, contexts: list[str], *, max_chars: int = 220) -> str:
-    """Pick the best extractive span from *contexts* for *question*."""
-    if not contexts:
+def synthesize_answer(
+    question: str,
+    contexts: list[str] | list[dict[str, Any]],
+    *,
+    max_chars: int = 220,
+) -> str:
+    """Pick the best extractive span from *contexts* for *question*.
+
+    *contexts* may be plain strings or dicts with ``text``, ``memory_type``,
+    ``provenance``, and ``score`` (as returned by memory search).
+    """
+    normalized = [item for item in _normalize_contexts(contexts) if _is_usable_context(item)]
+    if not normalized:
         return ""
 
+    temporal_bias = _question_temporal_bias(question)
     kind = _question_kind(question)
     question_words = _content_words(question)
     entities = _question_entities(question)
 
     if kind == "yes_no":
         sentences: list[tuple[float, str]] = []
-        for context in contexts:
-            for sentence in _split_sentences(context):
-                score = _overlap_score(question_words, sentence, entities)
+        for item in normalized:
+            meta_bonus = _context_metadata_bonus(item, temporal_bias)
+            for sentence in _split_sentences(item.text):
+                score = _overlap_score(question_words, sentence, entities) + meta_bonus
                 sentences.append((score, sentence))
         sentences.sort(key=lambda item: item[0], reverse=True)
         for _, sentence in sentences:
@@ -410,10 +538,9 @@ def synthesize_answer(question: str, contexts: list[str], *, max_chars: int = 22
         return ""
 
     ranked: list[_Candidate] = []
-    for context in contexts:
-        if not context or not context.strip():
-            continue
-        for sentence in _split_sentences(context):
+    for item in normalized:
+        meta_bonus = _context_metadata_bonus(item, temporal_bias)
+        for sentence in _split_sentences(item.text):
             for span in _collect_candidates(sentence, kind):
                 score = _score_candidate(
                     span,
@@ -422,10 +549,11 @@ def synthesize_answer(question: str, contexts: list[str], *, max_chars: int = 22
                     question_words=question_words,
                     entities=entities,
                 )
+                score += meta_bonus
                 ranked.append(_Candidate(text=span, sentence=sentence, score=score))
 
     if not ranked:
-        return _truncate(" ".join(contexts), max_chars)
+        return _truncate(" ".join(item.text for item in normalized), max_chars)
 
     ranked.sort(key=lambda c: (c.score, -len(c.text)), reverse=True)
     best = ranked[0]

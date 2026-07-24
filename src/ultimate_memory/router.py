@@ -31,6 +31,12 @@ from .models import (
     safe_slug,
 )
 from .answer import f1_ready_text, synthesize_answer
+from .hops import (
+    MAX_HOP_SEARCHES,
+    build_hop_queries,
+    extract_hop_entities,
+    merge_contexts,
+)
 from .store import LocalStore
 
 
@@ -119,13 +125,15 @@ class MemoryRouter:
             limit=limit,
             as_of=as_of,
         )
-        contexts = [item["text"] for item in search_result["results"] if item.get("text")]
-        answer_text = synthesize_answer(question, contexts)
+        rich_contexts = [
+            item for item in search_result["results"] if item.get("text")
+        ]
+        answer_text = synthesize_answer(question, rich_contexts)
         return {
             "question": question,
             "answer": answer_text,
             "f1_text": f1_ready_text(answer_text),
-            "contexts_used": contexts,
+            "contexts_used": [item["text"] for item in rich_contexts],
             "search": search_result,
         }
 
