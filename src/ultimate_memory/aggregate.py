@@ -1849,6 +1849,40 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             re.I,
         ),
     ),
+    (
+        "writing classes",
+        re.compile(
+            r"\b(poetry|creative writing|screenwriting|journal(?:ing)?|"
+            r"online blog posts?|blog posts?|screenplays?)\b",
+            re.I,
+        ),
+    ),
+    (
+        "board games",
+        re.compile(
+            r"\b(chess|catan|settlers of catan|monopoly|scrabble|risk|"
+            r"ticket to ride|codenames|pandemic)\b",
+            re.I,
+        ),
+    ),
+    (
+        "video games",
+        re.compile(
+            r"\b(valorant|counter[- ]?strike(?:\s*:?\s*global offensive)?|"
+            r"xenoblade(?:\s*chronicles)?(?:\s*\d*)?|fortnite|overwatch|"
+            r"apex legends|animal crossing(?:\s*:?\s*new horizons)?|"
+            r"zelda(?:\s*botw)?|mario(?:\s*kart)?|pokemon)\b",
+            re.I,
+        ),
+    ),
+    (
+        "game platforms",
+        re.compile(
+            r"\b(gamecube|play\s*station(?:\s*\d)?|playstation(?:\s*\d)?|"
+            r"nintendo switch|xbox(?:\s*(?:one|series)?(?:\s*[xs])?)?|\bpc\b)\b",
+            re.I,
+        ),
+    ),
 ]
 
 
@@ -2119,6 +2153,10 @@ def build_speaker_inventories(speaker: str, fact_texts: list[str]) -> list[str]:
             "shelters",
             "countries",
             "states",
+            "writing classes",
+            "board games",
+            "video games",
+            "game platforms",
         }:
             inventories.append(f"{speaker} {label}: " + ", ".join(cleaned_items[:10]))
         elif len(cleaned_items) >= 2:

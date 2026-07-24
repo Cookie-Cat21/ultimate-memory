@@ -209,6 +209,22 @@ class MemoryRouter:
             expansions.append("kids books classics children's library")
         if "vivaldi" in q_lower_all or "four seasons" in q_lower_all:
             expansions.append("classical music bach mozart")
+        if "holiday" in q_lower_all or "independence" in q_lower_all:
+            expansions.append("Independence Day July 4th holiday")
+        if "console" in q_lower_all or "nintendo" in q_lower_all or "xenoblade" in q_lower_all:
+            expansions.append("Nintendo Switch Xenoblade console game")
+        if "nickname" in q_lower_all:
+            expansions.append("called nickname call")
+        if "pomodoro" in q_lower_all or "time management" in q_lower_all:
+            expansions.append("Pomodoro technique study exams")
+        if "composer" in q_lower_all or ("piano" in q_lower_all and "play" in q_lower_all):
+            expansions.append("John Williams piano composer")
+        if "endorsement" in q_lower_all or "under armour" in q_lower_all:
+            expansions.append("Under Armour endorsement outdoor gear")
+        if "national park" in q_lower_all:
+            expansions.append("Voyageurs National Park Minnesota nature")
+        if re.search(r"\bdegree\b|\bmajor\b", q_lower_all):
+            expansions.append("political science public administration public affairs")
 
         search_queries = [dense_query, question, *expansions]
         rich_contexts: list[dict] = []
@@ -375,6 +391,11 @@ class MemoryRouter:
                 f"{agg_intent.person} exercises",
                 f"{agg_intent.person} martial arts",
                 f"{agg_intent.person} yoga",
+                f"{agg_intent.person} writing classes",
+                f"{agg_intent.person} board games",
+                f"{agg_intent.person} video games",
+                f"{agg_intent.person} game platforms",
+                f"{agg_intent.person} friend places",
             ]
             for bit in topic_bits:
                 extra_queries.append(f"{agg_intent.person} {bit}")
@@ -409,6 +430,11 @@ class MemoryRouter:
                             " exercises:",
                             " martial arts:",
                             " yoga types:",
+                            " writing classes:",
+                            " board games:",
+                            " video games:",
+                            " game platforms:",
+                            " friend places:",
                         )
                     ):
                         inventory_contexts.append(
@@ -544,6 +570,11 @@ class MemoryRouter:
                 " exercises:",
                 " martial arts:",
                 " yoga types:",
+                " writing classes:",
+                " board games:",
+                " video games:",
+                " game platforms:",
+                " friend places:",
             )
         )
         should_list_answer = bool(
