@@ -777,13 +777,6 @@ class MemoryRouter:
             for item in extra:
                 if item.id not in seen:
                     candidates.append(item)
-                    seen.add(item.id)
-
-        # Score highest-risk pairs first so clear replacements win even with many actives.
-        candidates.sort(
-            key=lambda c: contradiction_score(atom.text, c.text),
-            reverse=True,
-        )
 
         for candidate in candidates:
             score = contradiction_score(atom.text, candidate.text)

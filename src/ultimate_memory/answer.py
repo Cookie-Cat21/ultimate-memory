@@ -105,6 +105,15 @@ _WHEN_RE = re.compile(r"\bwhen\b|\bwhat\s+(?:year|date|month|day)\b", re.I)
 _WHERE_RE = re.compile(r"\bwhere\b", re.I)
 _WHO_RE = re.compile(r"\bwho(?:m)?\b", re.I)
 _WHAT_RE = re.compile(r"\bwhat\b", re.I)
+_OCCUPATION_QUESTION_RE = re.compile(
+    r"\b(?:do\s+for\s+(?:a\s+)?(?:living|work)|occupation|career)\b|"
+    r"\bwhat\s+(?:does|did)\s+.+\s+(?:work|job)\b",
+    re.I,
+)
+_OCCUPATION_ANSWER_RE = re.compile(
+    r"\b(?:works?\s+as|worked\s+as|is\s+a|was\s+a|employed\s+(?:as|by|at))\b",
+    re.I,
+)
 
 _JUNK_LINE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^#"),
@@ -221,6 +230,19 @@ def _question_entities(question: str) -> set[str]:
 
 
 QuestionKind = Literal["yes_no", "when", "where", "who", "what", "other"]
+
+
+def _is_occupation_question(question: str) -> bool:
+    return bool(_OCCUPATION_QUESTION_RE.search(question))
+
+
+def _occupation_score_adjustment(span: str, sentence: str) -> float:
+    text = f"{span} {sentence}".lower()
+    if _OCCUPATION_ANSWER_RE.search(text):
+        return 0.85
+    if re.search(r"\b(?:named|called)\s+[a-z]", text):
+        return -0.5
+    return 0.0
 
 
 def _question_kind(question: str) -> QuestionKind:
@@ -351,6 +373,9 @@ def _context_metadata_bonus(item: _ContextItem, temporal_bias: Literal["current"
     if provenance.get("source") == "atomic-memory":
         bonus += 0.35
 
+    if provenance.get("hop"):
+        bonus += 0.45
+
     if item.memory_type in _PREFERRED_MEMORY_TYPES:
         bonus += 0.15
 
@@ -423,10 +448,14 @@ def _score_candidate(
     kind: QuestionKind,
     question_words: set[str],
     entities: set[str],
+    occupation_question: bool = False,
 ) -> float:
     score = _overlap_score(question_words, sentence, entities)
     score += _overlap_score(question_words, span, entities) * 0.5
     score += _length_bonus(kind, span)
+
+    if occupation_question:
+        score += _occupation_score_adjustment(span, sentence)
 
     if kind == "when" and _extract_date_spans(span):
         score += 0.55
@@ -520,6 +549,7 @@ def synthesize_answer(
     kind = _question_kind(question)
     question_words = _content_words(question)
     entities = _question_entities(question)
+    occupation_question = _is_occupation_question(question)
 
     if kind == "yes_no":
         sentences: list[tuple[float, str]] = []
@@ -548,6 +578,7 @@ def synthesize_answer(
                     kind=kind,
                     question_words=question_words,
                     entities=entities,
+                    occupation_question=occupation_question,
                 )
                 score += meta_bonus
                 ranked.append(_Candidate(text=span, sentence=sentence, score=score))
