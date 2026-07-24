@@ -433,6 +433,9 @@ class MemoryRouter:
                         "political",
                         "personality",
                         "education_fields",
+                        "inventory_union",
+                        "how_many",
+                        "both_intersection",
                     }
                 )
             )
