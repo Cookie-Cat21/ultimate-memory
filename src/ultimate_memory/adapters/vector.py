@@ -7,7 +7,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 
 from ..config import QdrantConfig, RetrievalConfig
-from ..models import MemoryChunk, SearchResult
+from ..models import AtomicMemory, MemoryChunk, SearchResult
 
 
 class VectorAdapter:
@@ -90,12 +90,93 @@ class VectorAdapter:
             total += len(points)
         return total
 
+    def upsert_atoms(self, atoms: Iterable[AtomicMemory], batch_size: int = 16) -> int:
+        atom_list = list(atoms)
+        if not atom_list or not self.ensure_collection():
+            return 0
+        total = 0
+        for i in range(0, len(atom_list), batch_size):
+            batch = atom_list[i : i + batch_size]
+            vectors = self.embed([atom.text for atom in batch])
+            points = [
+                qmodels.PointStruct(
+                    id=str(uuid5(NAMESPACE_URL, atom.id)),
+                    vector=vector,
+                    payload=self._atom_payload(atom),
+                )
+                for atom, vector in zip(batch, vectors, strict=True)
+            ]
+            self.client().upsert(
+                collection_name=self.retrieval.collection_name,
+                points=points,
+                wait=True,
+            )
+            total += len(points)
+        return total
+
+    @staticmethod
+    def _atom_payload(atom: AtomicMemory) -> dict:
+        tags = atom.metadata.get("tags", [])
+        if not isinstance(tags, list):
+            tags = []
+        return {
+            "id": atom.id,
+            "text": atom.text,
+            "title": f"{atom.memory_type.value}: {atom.text[:72]}",
+            "source_path": f"atom://{atom.id}",
+            "memory_type": atom.memory_type.value,
+            "kind": "atom",
+            "project_path": atom.project_path,
+            "tags": tags,
+            "salience": atom.salience,
+            "valid_from": atom.valid_from,
+            "valid_until": atom.valid_until,
+            "superseded_by": atom.superseded_by,
+            "access_count": atom.access_count,
+            "entities": atom.entities,
+            "created_at": atom.created_at,
+        }
+
+    @staticmethod
+    def _search_result_from_payload(payload: dict, *, score: float) -> SearchResult:
+        if payload.get("kind") == "atom":
+            return SearchResult(
+                id=str(payload.get("id", "")),
+                text=str(payload.get("text", "")),
+                title=str(payload.get("title", "Untitled")),
+                source_path=payload.get("source_path") or f"atom://{payload.get('id', '')}",
+                memory_type=str(payload.get("memory_type", "note")),
+                score=score,
+                provenance={
+                    "source": "atomic-memory",
+                    "vector": True,
+                    "salience": payload.get("salience"),
+                    "valid_from": payload.get("valid_from"),
+                    "valid_until": payload.get("valid_until"),
+                    "superseded_by": payload.get("superseded_by"),
+                    "access_count": payload.get("access_count"),
+                    "entities": payload.get("entities"),
+                    "project_path": payload.get("project_path"),
+                    "payload": payload,
+                },
+            )
+        return SearchResult(
+            id=str(payload.get("id", "")),
+            text=str(payload.get("text", "")),
+            title=str(payload.get("title", "Untitled")),
+            source_path=payload.get("source_path"),
+            memory_type=str(payload.get("memory_type", "note")),
+            score=score,
+            provenance={"source": "qdrant", "payload": payload},
+        )
+
     def search(
         self,
         query: str,
         limit: int = 8,
         tags: list[str] | None = None,
         memory_types: list[str] | None = None,
+        include_superseded: bool = False,
     ) -> list[SearchResult]:
         if not query.strip() or not self.ensure_collection():
             return []
@@ -126,15 +207,13 @@ class VectorAdapter:
         results: list[SearchResult] = []
         for point in response.points:
             payload = point.payload or {}
+            if (
+                not include_superseded
+                and payload.get("kind") == "atom"
+                and payload.get("valid_until")
+            ):
+                continue
             results.append(
-                SearchResult(
-                    id=str(payload.get("id", point.id)),
-                    text=str(payload.get("text", "")),
-                    title=str(payload.get("title", "Untitled")),
-                    source_path=payload.get("source_path"),
-                    memory_type=str(payload.get("memory_type", "note")),
-                    score=float(point.score),
-                    provenance={"source": "qdrant", "payload": payload},
-                )
+                self._search_result_from_payload(payload, score=float(point.score))
             )
         return results

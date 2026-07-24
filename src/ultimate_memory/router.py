@@ -122,7 +122,11 @@ class MemoryRouter:
         # --- run all five sources in parallel --------------------------------
         def _vector():
             return self.vector.search(
-                query, actual_limit, tags=tags, memory_types=memory_types
+                query,
+                actual_limit,
+                tags=tags,
+                memory_types=memory_types,
+                include_superseded=include_superseded,
             ) if self._vector_ready else []
 
         def _keyword():
@@ -697,7 +701,9 @@ class MemoryRouter:
                     }
             # Clear contradiction / replacement
             if score >= 0.58:
-                self.store.invalidate_atom(candidate.id, superseded_by=atom.id)
+                invalidated = self.store.invalidate_atom(candidate.id, superseded_by=atom.id)
+                if invalidated and self._vector_ready:
+                    self.vector.upsert_atoms([invalidated])
                 superseded.append(
                     {
                         "old_id": candidate.id,
@@ -707,6 +713,8 @@ class MemoryRouter:
                 )
 
         self.store.upsert_atom(atom)
+        if self._vector_ready:
+            self.vector.upsert_atoms([atom])
         if self._graph_ready:
             self.graph.upsert_atoms([atom])
             for item in superseded:
