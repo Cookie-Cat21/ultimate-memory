@@ -7,14 +7,21 @@ import os
 import re
 from functools import lru_cache
 
+from .answer import _extract_date_spans, synthesize_answer
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "google/flan-t5-base"
-MAX_CONTEXTS = 6
-MAX_CONTEXT_CHARS = 400
+MAX_CONTEXTS = 10
+MAX_CONTEXT_CHARS = 500
 
 _UNANSWERABLE = re.compile(
     r"^(?:i\s+don'?t\s+know|unknown|n/?a|none|not\s+(?:mentioned|stated|found))\.?$",
+    re.I,
+)
+_RELATIVE = re.compile(
+    r"^(?:yesterday|today|tomorrow|last\s+year|last\s+month|last\s+week|"
+    r"this\s+year|this\s+month|this\s+week|recently)\.?$",
     re.I,
 )
 
@@ -30,6 +37,8 @@ def use_llm_from_env() -> bool:
 def _clean_answer(text: str) -> str:
     text = text.strip().strip('"').strip("'")
     text = re.sub(r"\s+", " ", text)
+    # Drop leading "Answer:" echoes
+    text = re.sub(r"^(?:answer|a)\s*:\s*", "", text, flags=re.I)
     if _UNANSWERABLE.match(text):
         return "I don't know"
     return text
@@ -38,13 +47,68 @@ def _clean_answer(text: str) -> str:
 def _build_prompt(question: str, contexts: list[str]) -> str:
     context_block = "\n".join(f"- {c}" for c in contexts)
     return (
-        "Answer the question using only the memory snippets. "
-        "Reply with a short phrase or span (names, dates, places). "
+        "You are a memory QA system. Use ONLY the memory snippets below.\n"
+        "Return a SHORT answer phrase that matches the question "
+        "(a name, date like '7 May 2023', place, job, or yes/no).\n"
+        "Prefer absolute dates over words like yesterday/last year when both appear.\n"
         'If the snippets do not contain the answer, reply "I don\'t know".\n\n'
         f"Memories:\n{context_block}\n\n"
         f"Question: {question}\n"
-        "Answer:"
+        "Short answer:"
     )
+
+
+def _prefer_absolute_date(llm_answer: str, contexts: list[str], question: str) -> str:
+    """If the LLM returns a relative date, prefer an absolute date span from contexts."""
+    if not _RELATIVE.match(llm_answer.strip()):
+        # Also upgrade if extractive found a clearer absolute date for when-questions.
+        if not re.search(r"\bwhen\b|\bwhat\s+(?:year|date|month|day)\b", question, re.I):
+            return llm_answer
+    extractive = synthesize_answer(
+        question,
+        [{"text": c, "memory_type": "fact", "provenance": {"source": "atomic-memory"}, "score": 1.0} for c in contexts],
+    )
+    dates = _extract_date_spans(extractive) or _extract_date_spans(" ".join(contexts))
+    if dates:
+        # Prefer day-month-year over bare year when available.
+        dates = sorted(dates, key=lambda d: (len(d), d), reverse=True)
+        return dates[0]
+    return llm_answer
+
+
+def hybrid_answer(question: str, contexts: list[str], llm_answer: str) -> str:
+    """Blend local LLM output with extractive spans for LoCoMo F1."""
+    llm_answer = _clean_answer(llm_answer or "")
+    extractive = synthesize_answer(
+        question,
+        [
+            {
+                "text": c,
+                "memory_type": "fact",
+                "provenance": {"source": "atomic-memory"},
+                "score": 1.0,
+            }
+            for c in contexts
+        ],
+    )
+    q_lower = question.lower()
+
+    # Temporal: absolute dates win.
+    if re.search(r"\bwhen\b|\bwhat\s+(?:year|date|month|day)\b", q_lower):
+        ext_dates = _extract_date_spans(extractive)
+        if ext_dates:
+            return sorted(ext_dates, key=len, reverse=True)[0]
+        if llm_answer and llm_answer.lower() != "i don't know":
+            return _prefer_absolute_date(llm_answer, contexts, question)
+
+    if not llm_answer or llm_answer.lower() == "i don't know":
+        return extractive
+
+    upgraded = _prefer_absolute_date(llm_answer, contexts, question)
+    # If LLM answer is long/noisy and extractive is a tight entity, prefer extractive.
+    if extractive and len(extractive.split()) <= 6 and len(upgraded.split()) > 12:
+        return extractive
+    return upgraded
 
 
 class LocalAnswerer:
@@ -54,6 +118,7 @@ class LocalAnswerer:
         self.model_name = model_name or env_model_name()
         self._model = None
         self._tokenizer = None
+        self._torch = None
 
     def _ensure_loaded(self) -> None:
         if self._model is not None:
@@ -85,17 +150,17 @@ class LocalAnswerer:
             prompt,
             return_tensors="pt",
             truncation=True,
-            max_length=512,
+            max_length=1024,
         )
         with self._torch.no_grad():
             outputs = self._model.generate(
                 **inputs,
-                max_new_tokens=32,
-                num_beams=2,
+                max_new_tokens=48,
+                num_beams=4,
                 early_stopping=True,
             )
         raw = self._tokenizer.decode(outputs[0], skip_special_tokens=True)
-        return _clean_answer(raw)
+        return hybrid_answer(question, trimmed, raw)
 
 
 @lru_cache(maxsize=1)

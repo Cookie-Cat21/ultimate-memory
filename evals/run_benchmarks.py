@@ -46,11 +46,43 @@ CAT_NAMES = {
     5: "adversarial",
 }
 
-# Published reference bands (F1 unless noted)
+# A-MEM paper Table 1 (GPT-4o-mini, token F1). Column order in paper is
+# Single/Multi/Temporal/Open/Adversarial — mapped onto LoCoMo category IDs:
+# cat1=multi_hop, cat2=temporal, cat3=open_domain, cat4=single_hop, cat5=adversarial.
 REFERENCE = {
-    "a_mem_locomo_f1": {"multi_hop": 27.02, "temporal": 45.85},
+    "a_mem_gpt4o_mini_f1": {
+        "single_hop": 27.02,
+        "multi_hop": 45.85,
+        "temporal": 12.14,
+        "open_domain": 44.65,
+        "adversarial": 50.03,
+    },
+    "memgpt_gpt4o_mini_f1": {
+        "single_hop": 26.65,
+        "multi_hop": 25.52,
+        "temporal": 9.15,
+        "open_domain": 41.04,
+        "adversarial": 43.29,
+    },
+    "memorybank_gpt4o_mini_f1": {
+        "single_hop": 5.00,
+        "multi_hop": 9.68,
+        "temporal": 5.56,
+        "open_domain": 6.61,
+        "adversarial": 7.36,
+    },
+    "readagent_gpt4o_mini_f1": {
+        "single_hop": 9.15,
+        "multi_hop": 12.60,
+        "temporal": 5.31,
+        "open_domain": 9.67,
+        "adversarial": 9.81,
+    },
     "mem0_paper_locomo_j_overall": 66.88,
-    "note": "Vendor J-scores need LLM judge; we optimize token F1 + synthetic constraints.",
+    "note": (
+        "A-MEM/MemGPT/MemoryBank/ReadAgent numbers are paper token-F1 with GPT-4o-mini "
+        "answerer. Mem0 J is LLM-judge on 4 categories (excl. adversarial)."
+    ),
 }
 
 
@@ -306,6 +338,39 @@ def run_locomo(
                 )
                 router._ingest_atom(atom)
 
+        # Build compact per-speaker profile cards (helps multi-hop / identity QA).
+        profile_bits: dict[str, list[str]] = {}
+        for _okey, speakers in observations.items():
+            if not isinstance(speakers, dict):
+                continue
+            for speaker, items in speakers.items():
+                for item in items:
+                    text = str(item[0] if isinstance(item, list) and item else item).strip()
+                    if len(text) >= 20:
+                        profile_bits.setdefault(speaker, []).append(text[:180])
+        for speaker, bits in profile_bits.items():
+            # Dedup while preserving order
+            seen_bits: set[str] = set()
+            unique_bits: list[str] = []
+            for bit in bits:
+                key = bit.lower()
+                if key not in seen_bits:
+                    seen_bits.add(key)
+                    unique_bits.append(bit)
+            card = f"{speaker} profile: " + " | ".join(unique_bits[:12])
+            router._ingest_atom(
+                AtomicMemory(
+                    id=f"atom:profile:{safe_slug(sample_id)}:{safe_slug(speaker)}:{content_hash(card)[:8]}",
+                    text=card[:1200],
+                    memory_type=MemoryType.FACT,
+                    project_path=str(work / "project"),
+                    entities=[speaker],
+                    source_refs=[f"profile:{sample_id}:{speaker}"],
+                    created_at=now_iso(),
+                    importance=0.9,
+                )
+            )
+
         event_summary = sample.get("event_summary") or {}
         for ekey, speakers in event_summary.items():
             if not isinstance(speakers, dict):
@@ -358,7 +423,7 @@ def run_locomo(
             result = router.answer(
                 question,
                 project_path=str(work / "project"),
-                limit=10,
+                limit=20,
                 use_llm=use_llm,
             )
             answer = result["answer"]
@@ -386,20 +451,43 @@ def run_locomo(
 
     elapsed = time.perf_counter() - t0
     cat_summaries = {k: v.summary() for k, v in sorted(by_cat.items())}
+    amem = REFERENCE["a_mem_gpt4o_mini_f1"]
+    memgpt = REFERENCE["memgpt_gpt4o_mini_f1"]
+    mbank = REFERENCE["memorybank_gpt4o_mini_f1"]
+    readagent = REFERENCE["readagent_gpt4o_mini_f1"]
+
+    def _beat(cat: str, baseline: dict[str, float]) -> bool | None:
+        ours = cat_summaries.get(cat, {}).get("token_f1")
+        theirs = baseline.get(cat)
+        if ours is None or theirs is None:
+            return None
+        return ours > theirs
+
+    comparison = {}
+    for cat in ("single_hop", "multi_hop", "temporal", "open_domain", "adversarial"):
+        comparison[cat] = {
+            "ours": cat_summaries.get(cat, {}).get("token_f1"),
+            "a_mem": amem.get(cat),
+            "memgpt": memgpt.get(cat),
+            "memorybank": mbank.get(cat),
+            "readagent": readagent.get(cat),
+            "beats_a_mem": _beat(cat, amem),
+            "beats_memgpt": _beat(cat, memgpt),
+            "beats_memorybank": _beat(cat, mbank),
+            "beats_readagent": _beat(cat, readagent),
+        }
+
     report = {
         "benchmark": "locomo10",
         "elapsed_sec": round(elapsed, 3),
         "questions": asked,
+        "use_llm": use_llm,
         "overall": overall.summary(),
         "evidence_recall": round(100.0 * evidence_sum / evidence_n, 2) if evidence_n else 0.0,
         "by_category": cat_summaries,
-        "vs_a_mem_f1": {
-            "multi_hop_ours": cat_summaries.get("multi_hop", {}).get("token_f1"),
-            "multi_hop_amem": REFERENCE["a_mem_locomo_f1"]["multi_hop"],
-            "temporal_ours": cat_summaries.get("temporal", {}).get("token_f1"),
-            "temporal_amem": REFERENCE["a_mem_locomo_f1"]["temporal"],
-        },
+        "vs_competitors_f1": comparison,
         "worst": sorted(overall.details, key=lambda d: d["f1"])[:25],
+        "best": sorted(overall.details, key=lambda d: d["f1"], reverse=True)[:15],
         "reference": REFERENCE,
     }
     return report
@@ -439,7 +527,22 @@ def main() -> None:
         loco = run_locomo(max_dialogs=max_dialogs, max_questions=max_questions, use_llm=args.llm)
         reports["locomo"] = loco
         (RESULTS / "locomo.json").write_text(json.dumps(loco, indent=2), encoding="utf-8")
-        print(json.dumps({k: loco[k] for k in ("overall", "evidence_recall", "by_category", "vs_a_mem_f1")}, indent=2), flush=True)
+        print(
+            json.dumps(
+                {
+                    k: loco[k]
+                    for k in (
+                        "overall",
+                        "evidence_recall",
+                        "by_category",
+                        "vs_competitors_f1",
+                        "use_llm",
+                    )
+                },
+                indent=2,
+            ),
+            flush=True,
+        )
 
     (RESULTS / "latest.json").write_text(json.dumps(reports, indent=2), encoding="utf-8")
     print("Wrote", RESULTS / "latest.json", flush=True)
