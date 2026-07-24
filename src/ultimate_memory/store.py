@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import Iterable
 
-from .atoms import atom_valid_at, compute_salience, content_hash, now_iso, tokenize
+from .atoms import atom_valid_at, compute_salience, content_hash, now_iso
 from .models import AtomicMemory, AuditEvent, MemoryType
 
 _FTS_QUERY_STOP = frozenset(

@@ -162,16 +162,15 @@ class MemoryRouter:
         def _graph():
             return self.graph.query(query, depth=1) if self._graph_ready else []
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
             fv = pool.submit(_vector)
-            fk = pool.submit(_keyword)
             fb = pool.submit(_basic)
-            fa = pool.submit(_atoms)
             fg = pool.submit(_graph)
+            # SQLite store is not thread-safe; keep local FTS/atom queries on main thread.
+            keyword_results = _keyword()
+            atom_results = _atoms()
             vector_results: list[SearchResult] = fv.result()
-            keyword_results: list[SearchResult] = fk.result()
             bm_results: list[SearchResult] = fb.result()
-            atom_results: list[SearchResult] = fa.result()
             graph_hits: list[dict] = fg.result()
 
         results = self._rrf_rank(
