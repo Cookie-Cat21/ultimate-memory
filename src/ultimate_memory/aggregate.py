@@ -389,27 +389,27 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         q_lower,
     ):
         return AggregateIntent("hypothetical", person, topic=q_lower)
-    # Generic multi-hop inventory: "What X has PERSON ...?"
-    if (
-        re.search(
-            r"\b(?:what|which)\b.+\b(?:has|have|did|does|do)\b.+\b[A-Z][a-z]{2,}\b",
-            q,
+    # Generic multi-hop inventory — only plural/list heads to avoid stealing single-hop.
+    list_head = re.search(
+        r"\b(?:what|which)\s+"
+        r"(cities|countries|states|places|books|activities|events|hobbies|interests|"
+        r"games|songs|movies|shows|recipes|gifts|items|things|sports|instruments|"
+        r"pets|dogs|cats|kids|children|friends|people|restaurants|parks|trips|"
+        r"classes|courses|programs|organizations|groups|bands|artists|subjects|"
+        r"symbols|changes|types|kinds|names)"
+        r"\b",
+        q_lower,
+    ) or re.search(r"\bwhat (?:kind|type|types) of\b", q_lower)
+    if list_head:
+        head = _head_noun(q) or (
+            list_head.group(1) if list_head.lastindex else list_head.group(0)
         )
-        or re.search(
-            r"\b(?:what|which)\b.+\b(?:has|have|did|does|do)\b.+\b[a-z]{3,}\b",
-            q_lower,
-        )
-        or re.search(r"\bwhat (?:kind|type|types) of\b", q_lower)
-    ):
-        head = _head_noun(q)
         if head and head not in {"subject", "identity", "relationship status"}:
-            return AggregateIntent("inventory_union", person, topic=head)
+            return AggregateIntent("inventory_union", person, topic=str(head))
     if re.search(r"\bwould\b|\blikely\b|\bmight\b", q_lower) and re.search(
-        r"\b(?:would|likely|might|considered|interested|enjoy|pursue|want|does|did|is|has)\b",
+        r"\b(?:would|likely|might|considered|interested|enjoy|pursue|want)\b",
         q_lower,
     ):
-        return AggregateIntent("hypothetical", person, topic=q_lower)
-    if re.search(r"^(?:does|did|is|has|was|are)\b", q_lower):
         return AggregateIntent("hypothetical", person, topic=q_lower)
     if re.search(r"\bcareer path\b|\bdecided to (?:pursue|persue)\b", q_lower):
         return AggregateIntent("career", person)

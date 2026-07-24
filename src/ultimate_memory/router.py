@@ -392,54 +392,58 @@ class MemoryRouter:
                 dedup_texts.append(text.strip())
 
         aggregated = aggregate_answer(question, dedup_texts) if agg_intent else None
-        prefer_aggregated = bool(
-            aggregated
-            and (
-                "," in aggregated
-                or (
-                    agg_intent is not None
-                    and agg_intent.kind
-                    in {
-                        "relationship_status",
-                        "moved_from",
-                        "identity",
-                        "career",
-                        "hypothetical",
-                        "painted_recently",
-                        "beach_count",
-                        "children_count",
-                        "duration",
-                        "instruments",
-                        "supporters",
-                        "art_kind",
-                        "both_painted",
-                        "destress",
-                        "symbols",
-                        "trans_events",
-                        "bought_items",
-                        "hike_family",
-                        "artists_seen",
-                        "transition_changes",
-                        "pottery_types",
-                        "pet_names",
-                        "lgbtq_ways",
-                        "lgbtq_events",
-                        "help_children",
-                        "camp_places",
-                        "kids_like",
-                        "books",
-                        "activities",
-                        "research",
-                        "political",
-                        "personality",
-                        "education_fields",
-                        "inventory_union",
-                        "how_many",
-                        "both_intersection",
-                    }
-                )
-            )
-        )
+        # Inventory unions must look like lists; never override single-hop spans
+        # with a one-token guess from a broad head match.
+        list_kinds = {
+            "inventory_union",
+            "activities",
+            "camp_places",
+            "kids_like",
+            "books",
+            "lgbtq_ways",
+            "lgbtq_events",
+            "help_children",
+            "painted_subjects",
+            "destress",
+            "instruments",
+            "pet_names",
+            "pottery_types",
+            "symbols",
+            "trans_events",
+            "bought_items",
+            "hike_family",
+            "artists_seen",
+            "transition_changes",
+            "supporters",
+            "both_painted",
+            "both_intersection",
+        }
+        short_kinds = {
+            "relationship_status",
+            "moved_from",
+            "identity",
+            "career",
+            "hypothetical",
+            "painted_recently",
+            "beach_count",
+            "children_count",
+            "duration",
+            "art_kind",
+            "research",
+            "political",
+            "personality",
+            "education_fields",
+            "how_many",
+        }
+        prefer_aggregated = False
+        if aggregated and agg_intent is not None:
+            kind = agg_intent.kind
+            if kind in list_kinds:
+                prefer_aggregated = "," in aggregated or " and " in aggregated.lower()
+            elif kind in short_kinds:
+                prefer_aggregated = True
+            elif "," in aggregated:
+                prefer_aggregated = True
 
         should_use_llm = use_llm if use_llm is not None else use_llm_from_env()
         if prefer_aggregated:
