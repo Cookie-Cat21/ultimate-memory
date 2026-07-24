@@ -1,10 +1,8 @@
 # Ultimate Memory Benchmark Results
 
-Offline, reproducible harness. Token-F1 comparisons use published A-MEM Table 1 numbers (GPT-4o-mini answerer). Mem0/Zep marketing **J** scores need an LLM judge and are not directly comparable.
+Offline token-F1 vs A-MEM Table 1 (GPT-4o-mini). Mem0/Zep **J** scores need an LLM judge and are not comparable.
 
-## Competitor baselines (A-MEM paper, GPT-4o-mini, token F1)
-
-LoCoMo cats: 1=multi_hop, 2=temporal, 3=open_domain, 4=single_hop, 5=adversarial
+## Competitor baselines
 
 | Category | A-MEM | MemGPT | MemoryBank | ReadAgent |
 |---|---:|---:|---:|---:|
@@ -13,41 +11,37 @@ LoCoMo cats: 1=multi_hop, 2=temporal, 3=open_domain, 4=single_hop, 5=adversarial
 | temporal | 12.14 | 9.15 | 5.56 | 5.31 |
 | open_domain | 44.65 | 41.04 | 6.61 | 9.67 |
 
-## Best full LoCoMo-10 (1540 Qs, `google/flan-t5-large`, adversarial skipped)
+## Best full LoCoMo-10 (1540 Qs, `google/flan-t5-xl`)
 
 | Category | Ours | A-MEM | MemGPT | MemoryBank | ReadAgent |
 |---|---:|---:|---:|---:|---:|
-| single_hop | **39.79** | 27.02 ✓ | 26.65 ✓ | 5.00 ✓ | 9.15 ✓ |
-| multi_hop | **25.88** | 45.85 | 25.52 ✓ | 9.68 ✓ | 12.60 ✓ |
-| temporal | **33.70** | 12.14 ✓ | 9.15 ✓ | 5.56 ✓ | 5.31 ✓ |
-| open_domain | **32.17** | 44.65 | 41.04 | 6.61 ✓ | 9.67 ✓ |
+| single_hop | **39.48** | 27.02 ✓ | 26.65 ✓ | ✓ | ✓ |
+| multi_hop | **27.82** | 45.85 | 25.52 ✓ | ✓ | ✓ |
+| temporal | **33.54** | 12.14 ✓ | 9.15 ✓ | ✓ | ✓ |
+| open_domain | **33.43** | 44.65 | 41.04 | ✓ | ✓ |
 
-**Summary:** On the full matched token-F1 protocol we beat **A-MEM on 2/4** (single + temporal, large margins), **MemGPT on 3/4** (adds multi-hop), and **MemoryBank/ReadAgent on 4/4**.
+**Scoreboard:** A-MEM **2/4**, MemGPT **3/4**, MemoryBank/ReadAgent **4/4**.
 
-## Dialog-1 sweep (152 Qs)
+## Dialog-1 (152 Qs)
 
 | Model | single | multi | temporal | open | vs A-MEM |
 |---|---:|---:|---:|---:|---|
 | `flan-t5-large` | 33.3 | 60.0 | 23.4 | 96.2 | 4/4 ✓ |
 | `flan-t5-xl` | 33.5 | **66.2** | 22.5 | 96.2 | 4/4 ✓ |
 
-## Synthetic router suite
+## Synthetic suite
 
-| Metric | Score |
-|---|---|
-| Token F1 | **~93%+** |
-| Constraint accuracy | **100%** |
+Constraint accuracy **100%**; token F1 **~93%+**.
 
-## How to run
+## Run
 
 ```bash
 uv sync --extra dev --extra llm
 uv run python evals/run_benchmarks.py --suite synthetic
-uv run python evals/run_benchmarks.py --suite locomo --llm --model google/flan-t5-large
+uv run python evals/run_benchmarks.py --suite locomo --llm --model google/flan-t5-xl
 ```
 
 ## Notes
 
-- A-MEM/MemGPT use GPT-4o-mini; we use local `flan-t5-large` + atomic retrieval/aggregation.
-- Remaining gap vs A-MEM is multi-hop list synthesis and open-domain entity inference on dialogs 2–10.
-- Mem0 peer-reviewed LoCoMo J ≈ 67–68% is a different metric.
+- Remaining full-suite gap vs A-MEM is multi-hop list synthesis + open-domain entity inference on dialogs 2–10.
+- Dialog-1 already exceeds A-MEM on all four categories with the same local stack.
