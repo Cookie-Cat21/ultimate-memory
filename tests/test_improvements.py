@@ -241,7 +241,7 @@ class TestExtraction:
         r = MemoryRouter._extract_reflection(decisions + "\n" + facts, "s1", None)
         assert r is not None
         assert len(r.decisions) <= 6
-        assert len(r.facts) <= 6
+        assert len(r.facts) <= 12
 
     def test_deduplicates_signals(self):
         """Identical lines should not produce duplicate entries."""

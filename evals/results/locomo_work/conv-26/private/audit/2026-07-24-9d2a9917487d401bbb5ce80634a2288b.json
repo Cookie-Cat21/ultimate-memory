@@ -1,0 +1,128 @@
+{
+  "id": "9d2a9917487d401bbb5ce80634a2288b",
+  "action": "reflect",
+  "created_at": "2026-07-24T02:43:11.766333+00:00",
+  "payload": {
+    "candidate_id": "849c401654fc49ffa3668193487f6f09",
+    "confidence": 0.95,
+    "canonical_written": true,
+    "duplicate_hits": [
+      {
+        "id": "atom:turn:conv-26-session-1:D1:1",
+        "text": "Caroline: Hey Mel! Good to see you! How have you been?",
+        "title": "fact: Caroline: Hey Mel! Good to see you! How have you been?",
+        "source_path": "atom://atom:turn:conv-26-session-1:D1:1",
+        "memory_type": "fact",
+        "score": 0.7200000000001943,
+        "provenance": {
+          "source": "atomic-memory",
+          "salience": 6.940229546292793e-13,
+          "valid_from": "2023-05-08",
+          "valid_until": null,
+          "event_time": "2023-05-08",
+          "superseded_by": null,
+          "access_count": 0,
+          "entities": [
+            "Caroline"
+          ],
+          "project_path": "/workspace/evals/results/locomo_work/conv-26/project",
+          "raw_score": 0.35,
+          "rrf_score": 1.0,
+          "relevance_score": 1.0,
+          "salience_component": 6.940229546292793e-13
+        }
+      },
+      {
+        "id": "atom:turn:conv-26-session-1:D1:2",
+        "text": "Melanie: Hey Caroline! Good to see you! I'm swamped with the kids & work. What's up with you? Anything new?",
+        "title": "fact: Melanie: Hey Caroline! Good to see you! I'm swamped with the kids & work",
+        "source_path": "atom://atom:turn:conv-26-session-1:D1:2",
+        "memory_type": "fact",
+        "score": 0.7083870967743877,
+        "provenance": {
+          "source": "atomic-memory",
+          "salience": 6.940229509663912e-13,
+          "valid_from": "2023-05-08",
+          "valid_until": null,
+          "event_time": "2023-05-08",
+          "superseded_by": null,
+          "access_count": 0,
+          "entities": [
+            "Melanie"
+          ],
+          "project_path": "/workspace/evals/results/locomo_work/conv-26/project",
+          "raw_score": 0.35,
+          "rrf_score": 0.9838709677419354,
+          "relevance_score": 0.9838709677419354,
+          "salience_component": 6.940229509663912e-13
+        }
+      },
+      {
+        "id": "atom:turn:conv-26-session-1:D1:10",
+        "text": "Melanie: Wow, Caroline! What kinda jobs are you thinkin' of? Anything that stands out?",
+        "title": "fact: Melanie: Wow, Caroline! What kinda jobs are you thinkin' of? Anything th",
+        "source_path": "atom://atom:turn:conv-26-session-1:D1:10",
+        "memory_type": "fact",
+        "score": 0.6971428571430514,
+        "provenance": {
+          "source": "atomic-memory",
+          "salience": 6.940229495900276e-13,
+          "valid_from": "2023-05-08",
+          "valid_until": null,
+          "event_time": "2023-05-08",
+          "superseded_by": null,
+          "access_count": 0,
+          "entities": [
+            "Melanie"
+          ],
+          "project_path": "/workspace/evals/results/locomo_work/conv-26/project",
+          "raw_score": 0.35,
+          "rrf_score": 0.9682539682539681,
+          "relevance_score": 0.9682539682539681,
+          "salience_component": 6.940229495900276e-13
+        }
+      }
+    ],
+    "title": "Caroline went to a LGBTQ support group on 7 May 2023 and it was so power",
+    "folder": "research/agent-memory/reflections",
+    "atoms": {
+      "created": [
+        "atom:fact:caroline-went-to-a-lgbtq-support-group-on-7-may-:84fcdef6",
+        "atom:fact:melanie-yeah-i-painted-that-lake-sunrise-in-2022:7731645b",
+        "atom:preference:melanie-wow-love-that-painting-so-cool-you-found:535d4f64",
+        "atom:preference:caroline-i-m-keen-on-counseling-or-working-in-me:2349e5ee",
+        "atom:preference:caroline-wow-melanie-the-colors-really-blend-nic:54928d3a"
+      ],
+      "duplicates": [],
+      "superseded": [
+        {
+          "old_id": "atom:turn:conv-26-session-1:D1:3",
+          "old_text": "Caroline: I went to a LGBTQ support group on 7 May 2023 and it was so powerful.",
+          "score": 1.0
+        }
+      ],
+      "count": 5
+    },
+    "reflection": {
+      "source_refs": [
+        "session:conv-26-session_1"
+      ],
+      "summary": "Auto-extracted from project session conv-26-session_1. 5 signals: 0 decisions, 2 facts, 3 preferences, 0 procedures. Entities: Caroline, Hey Mel, Melanie, Hey Caroline, Anything.",
+      "facts": [
+        "Caroline went to a LGBTQ support group on 7 May 2023 and it was so powerful",
+        "Melanie yeah, I painted that lake sunrise in 2022! It's special to me."
+      ],
+      "preferences": [
+        "Melanie wow, love that painting! So cool you found such a helpful group. What's it done for you?",
+        "Caroline: I'm keen on counseling or working in mental health - I'd love to support those with similar issues.",
+        "Caroline wow, Melanie! The colors really blend nicely. Painting looks like a great outlet for expressing yourself."
+      ],
+      "decisions": [],
+      "procedures": [],
+      "open_questions": []
+    }
+  },
+  "source_refs": [
+    "session:conv-26-session_1"
+  ]
+}

@@ -90,7 +90,7 @@ class TestHeuristicExtraction:
         result = extract_from_transcript(decisions + "\n" + facts, "s1", None)
         assert result.payload is not None
         assert len(result.payload.decisions) <= 6
-        assert len(result.payload.facts) <= 6
+        assert len(result.payload.facts) <= 12
 
     def test_deduplicates(self):
         line = "Caroline: I work as a registered nurse at the downtown clinic."

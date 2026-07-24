@@ -184,20 +184,28 @@ _NEG_CUES = (
 )
 
 
-def _normalize_for_f1(text: str) -> str:
-    lowered = text.lower()
+def _normalize_for_f1(text: str | int | float | None) -> str:
+    lowered = str(text or "").lower()
     no_punct = "".join(ch for ch in lowered if ch not in string.punctuation)
     no_articles = " ".join(tok for tok in no_punct.split() if tok not in _ARTICLES)
     return " ".join(no_articles.split())
 
 
-def _tokens(text: str) -> list[str]:
+def _tokens(text: str | int | float | None) -> list[str]:
     return _normalize_for_f1(text).split()
 
 
-def tokenize_f1(prediction: str, ground_truth: str | list[str]) -> float:
+def tokenize_f1(
+    prediction: str | int | float | None,
+    ground_truth: str | list[str] | int | float | None,
+) -> float:
     """Standard QA token F1 (SQuAD-style): lowercase, strip punctuation, max over golds."""
-    golds = [ground_truth] if isinstance(ground_truth, str) else list(ground_truth)
+    if ground_truth is None:
+        golds: list[str | int | float] = []
+    elif isinstance(ground_truth, list):
+        golds = ground_truth
+    else:
+        golds = [ground_truth]
     if not golds:
         return 0.0
     pred_toks = _tokens(prediction)
@@ -336,7 +344,17 @@ def _is_junk_line(line: str) -> bool:
 
 
 def _filter_context_text(text: str) -> str:
-    kept = [line for line in text.splitlines() if not _is_junk_line(line)]
+    kept = []
+    for line in text.splitlines():
+        if _is_junk_line(line):
+            continue
+        lower = line.strip().lower()
+        # Session frontmatter dates are not answer evidence.
+        if lower.startswith(("created_at:", "session_date:", "date:", "event_time:", "---")):
+            continue
+        if lower.startswith("tags:") or lower.startswith("client:") or lower.startswith("session_id:"):
+            continue
+        kept.append(line)
     return "\n".join(kept).strip()
 
 
@@ -418,6 +436,9 @@ def _is_usable_context(item: _ContextItem) -> bool:
         return True
     if item.memory_type in _PREFERRED_MEMORY_TYPES and len(text) >= 8:
         return True
+    # Giant raw session dumps drown extractive QA — keep only shorter evidence.
+    if len(text) > 700 and item.memory_type in {"log", "note"}:
+        return False
     if len(text) < 8 and not re.search(r"\b(19|20)\d{2}\b", text):
         return False
     return True
@@ -640,6 +661,12 @@ def synthesize_answer(
     entities = _question_entities(question)
     occupation_question = _is_occupation_question(question)
 
+    # For "when" questions, prefer contexts that actually contain date spans.
+    if kind == "when":
+        dated_only = [item for item in normalized if _extract_date_spans(item.text)]
+        if dated_only:
+            normalized = dated_only
+
     if kind == "yes_no":
         sentences: list[tuple[float, str]] = []
         for item in normalized:
@@ -679,24 +706,33 @@ def synthesize_answer(
     best = ranked[0]
 
     if kind == "when":
-        # Prefer a date that co-occurs with question entities anywhere in contexts.
+        # Prefer a date that co-occurs with question entities/content in the same sentence.
         dated: list[tuple[float, str]] = []
         for item in normalized:
             meta = _context_metadata_bonus(item, temporal_bias)
             for sentence in _split_sentences(item.text):
+                overlap = _overlap_score(question_words, sentence, entities)
                 if entities and not any(ent in sentence.lower() for ent in entities):
-                    # Still allow if sentence has strong question overlap.
-                    if _overlap_score(question_words, sentence, entities) < 0.25:
+                    if overlap < 0.35:
                         continue
+                elif overlap < 0.2:
+                    continue
                 for date in _extract_date_spans(sentence):
-                    dated.append((meta + _overlap_score(question_words, sentence, entities), date))
+                    # Penalize dates that are just session stamps without topical words.
+                    topical = overlap + (0.4 if any(w in sentence.lower() for w in question_words) else 0.0)
+                    dated.append((meta + topical + min(len(date), 20) * 0.01, date))
         if dated:
-            # Prefer longer/more specific date strings when scores are close.
             dated.sort(key=lambda x: (x[0], len(x[1])), reverse=True)
             return _truncate(dated[0][1], max_chars)
         dates = _extract_date_spans(best.text) or _extract_date_spans(best.sentence)
         if dates:
             return _truncate(dates[0], max_chars)
+        # Avoid vague relative answers when no absolute date is available.
+        if re.search(r"\b(?:last|next|this)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|weekend|month)\b", best.text, re.I):
+            for cand in ranked[1:8]:
+                alt = _extract_date_spans(cand.text) or _extract_date_spans(cand.sentence)
+                if alt:
+                    return _truncate(alt[0], max_chars)
 
     if kind == "where":
         locs = _extract_location_spans(best.text) or _extract_location_spans(best.sentence)

@@ -1,0 +1,148 @@
+{
+  "name": "ultimate-memory-synthetic-v1",
+  "description": "Offline router suite: write→recall, preference, update, contradiction, temporal, multi-hop, distractors.",
+  "cases": [
+    {
+      "id": "fact_recall_1",
+      "category": "fact_recall",
+      "writes": [
+        {"type": "reflect", "summary": "profile", "facts": ["Alice lives in Seattle and works as a nurse."], "source_refs": ["w1"]}
+      ],
+      "question": "Where does Alice live?",
+      "answers": ["Seattle"],
+      "must_include": ["seattle"]
+    },
+    {
+      "id": "preference_1",
+      "category": "preference",
+      "writes": [
+        {"type": "reflect", "summary": "prefs", "preferences": ["Bob prefers concise answers and never wants emojis."], "source_refs": ["w2"]}
+      ],
+      "question": "What does Bob prefer about answers?",
+      "answers": ["concise answers", "concise", "never wants emojis"],
+      "must_include_any": ["concise", "emoji"]
+    },
+    {
+      "id": "knowledge_update_1",
+      "category": "knowledge_update",
+      "writes": [
+        {"type": "reflect", "summary": "v1", "facts": ["Carol lives in New York City."], "source_refs": ["w3a"]},
+        {"type": "reflect", "summary": "v2", "facts": ["Carol moved to Austin instead of staying in New York City."], "source_refs": ["w3b"]}
+      ],
+      "question": "Where does Carol live now?",
+      "answers": ["Austin"],
+      "must_include": ["austin"],
+      "must_not_include": ["new york"]
+    },
+    {
+      "id": "temporal_before_1",
+      "category": "temporal",
+      "writes": [
+        {"type": "reflect", "summary": "old", "facts": ["Derek lived in Chicago for five years."], "source_refs": ["w4a"]},
+        {"type": "reflect", "summary": "new", "facts": ["Derek moved to Denver instead of living in Chicago."], "source_refs": ["w4b"]}
+      ],
+      "question": "Where did Derek used to live before?",
+      "answers": ["Chicago"],
+      "must_include": ["chicago"]
+    },
+    {
+      "id": "multi_hop_1",
+      "category": "multi_hop",
+      "writes": [
+        {"type": "reflect", "summary": "m1", "facts": ["Elena's sister is named Fiona."], "source_refs": ["w5a"]},
+        {"type": "reflect", "summary": "m2", "facts": ["Fiona works as a pilot for Delta Airlines."], "source_refs": ["w5b"]}
+      ],
+      "question": "What does Elena's sister do for work?",
+      "answers": ["pilot", "a pilot", "pilot for Delta Airlines"],
+      "must_include": ["pilot"]
+    },
+    {
+      "id": "contradiction_job_1",
+      "category": "contradiction",
+      "writes": [
+        {"type": "reflect", "summary": "j1", "facts": ["Gabe works as a teacher at Lincoln High."], "source_refs": ["w6a"]},
+        {"type": "reflect", "summary": "j2", "facts": ["Gabe works as a software engineer instead of working as a teacher."], "source_refs": ["w6b"]}
+      ],
+      "question": "What is Gabe's job?",
+      "answers": ["software engineer", "engineer"],
+      "must_include_any": ["engineer", "software"],
+      "must_not_include": ["teacher"]
+    },
+    {
+      "id": "procedure_1",
+      "category": "procedure",
+      "writes": [
+        {"type": "reflect", "summary": "proc", "procedures": ["Steps: run migrations then restart the API server then check /health."], "source_refs": ["w7"]}
+      ],
+      "question": "How do we deploy database changes?",
+      "answers": ["run migrations then restart the API server then check /health", "run migrations"],
+      "must_include_any": ["migration", "restart"]
+    },
+    {
+      "id": "decision_1",
+      "category": "decision",
+      "writes": [
+        {"type": "reflect", "summary": "dec", "decisions": ["We decided to use Redis for session caching going forward."], "source_refs": ["w8"]}
+      ],
+      "question": "What caching system did we decide to use?",
+      "answers": ["Redis"],
+      "must_include": ["redis"]
+    },
+    {
+      "id": "distractor_flood_1",
+      "category": "distractor",
+      "writes": [
+        {"type": "reflect", "summary": "noise1", "facts": ["Random note about weather in Miami being humid."], "source_refs": ["n1"]},
+        {"type": "reflect", "summary": "noise2", "facts": ["Someone mentioned pizza toppings and pineapple debates."], "source_refs": ["n2"]},
+        {"type": "reflect", "summary": "noise3", "facts": ["A blog post discussed gardening tomatoes outdoors."], "source_refs": ["n3"]},
+        {"type": "reflect", "summary": "signal", "facts": ["Helena's passport number nickname is Orion-42 for travel planning."], "source_refs": ["sig"]},
+        {"type": "reflect", "summary": "noise4", "facts": ["Meeting notes covered budget spreadsheets for Q3."], "source_refs": ["n4"]}
+      ],
+      "question": "What is Helena's passport nickname?",
+      "answers": ["Orion-42", "Orion 42"],
+      "must_include": ["orion"]
+    },
+    {
+      "id": "preference_update_1",
+      "category": "preference_update",
+      "writes": [
+        {"type": "reflect", "summary": "p1", "preferences": ["I always prefer dark mode in the editor."], "source_refs": ["p1"]},
+        {"type": "reflect", "summary": "p2", "preferences": ["I no longer prefer dark mode; I prefer light mode in the editor instead."], "source_refs": ["p2"]}
+      ],
+      "question": "What editor theme preference is current?",
+      "answers": ["light mode", "light"],
+      "must_include": ["light"],
+      "must_not_include": ["dark"]
+    },
+    {
+      "id": "dialogue_extract_1",
+      "category": "dialogue_extract",
+      "writes": [
+        {
+          "type": "ingest",
+          "client": "bench",
+          "session_id": "dlg1",
+          "transcript": "Caroline: Hey! I went to the LGBTQ support group on 7 May 2023.\nMelanie: That's great. I painted a sunrise last year in 2022.\nCaroline: I'm a transgender woman and I'm researching adoption agencies."
+        }
+      ],
+      "question": "When did Caroline go to the LGBTQ support group?",
+      "answers": ["7 May 2023", "May 2023"],
+      "must_include_any": ["7 may", "may 2023", "2023"]
+    },
+    {
+      "id": "dialogue_identity_1",
+      "category": "dialogue_extract",
+      "writes": [
+        {
+          "type": "ingest",
+          "client": "bench",
+          "session_id": "dlg2",
+          "transcript": "Caroline: Just so you know, I am a transgender woman.\nMelanie: Thanks for sharing. I work as a counselor."
+        }
+      ],
+      "question": "What is Caroline's identity?",
+      "answers": ["Transgender woman", "a transgender woman"],
+      "must_include": ["transgender"]
+    }
+  ]
+}

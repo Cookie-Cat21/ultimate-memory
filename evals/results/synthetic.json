@@ -1,0 +1,75 @@
+{
+  "benchmark": "ultimate-memory-synthetic-v1",
+  "elapsed_sec": 0.504,
+  "overall": {
+    "n": 12,
+    "token_f1": 93.43,
+    "constraint_acc": 100.0
+  },
+  "by_category": {
+    "contradiction": {
+      "n": 1,
+      "token_f1": 100.0,
+      "constraint_acc": 100.0
+    },
+    "decision": {
+      "n": 1,
+      "token_f1": 100.0,
+      "constraint_acc": 100.0
+    },
+    "dialogue_extract": {
+      "n": 2,
+      "token_f1": 100.0,
+      "constraint_acc": 100.0
+    },
+    "distractor": {
+      "n": 1,
+      "token_f1": 100.0,
+      "constraint_acc": 100.0
+    },
+    "fact_recall": {
+      "n": 1,
+      "token_f1": 100.0,
+      "constraint_acc": 100.0
+    },
+    "knowledge_update": {
+      "n": 1,
+      "token_f1": 100.0,
+      "constraint_acc": 100.0
+    },
+    "multi_hop": {
+      "n": 1,
+      "token_f1": 100.0,
+      "constraint_acc": 100.0
+    },
+    "preference": {
+      "n": 1,
+      "token_f1": 54.55,
+      "constraint_acc": 100.0
+    },
+    "preference_update": {
+      "n": 1,
+      "token_f1": 66.67,
+      "constraint_acc": 100.0
+    },
+    "procedure": {
+      "n": 1,
+      "token_f1": 100.0,
+      "constraint_acc": 100.0
+    },
+    "temporal": {
+      "n": 1,
+      "token_f1": 100.0,
+      "constraint_acc": 100.0
+    }
+  },
+  "failures": [],
+  "reference": {
+    "a_mem_locomo_f1": {
+      "multi_hop": 27.02,
+      "temporal": 45.85
+    },
+    "mem0_paper_locomo_j_overall": 66.88,
+    "note": "Vendor J-scores need LLM judge; we optimize token F1 + synthetic constraints."
+  }
+}

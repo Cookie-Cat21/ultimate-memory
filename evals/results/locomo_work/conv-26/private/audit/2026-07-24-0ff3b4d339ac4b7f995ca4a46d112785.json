@@ -1,0 +1,93 @@
+{
+  "id": "0ff3b4d339ac4b7f995ca4a46d112785",
+  "action": "reflect",
+  "created_at": "2026-07-24T02:43:12.387429+00:00",
+  "payload": {
+    "candidate_id": "b3ce1ac11dd3470a83f109a93f8a01cc",
+    "confidence": 0.95,
+    "canonical_written": true,
+    "duplicate_hits": [
+      {
+        "id": "basic-memory-direct-0",
+        "text": "# Melanie yeah, I made it in pottery class on 24 August 2023. I love it! P\n\nAuto-extracted from project session conv-26-session_14. 7 signals: 0 decisions, 3 facts, 4 preferences, 0 procedures. Entities: Caroline, Hey, Mel, There, It.\n\n## Facts\n- Melanie yeah, I made it in pottery class on 24 August 2023. I love it! Pottery's so relaxing and creative. Have you tried it yet?\n- Caroline thanks, Melanie! I painted it after I visited the beach last week. Just seeing the sun dip below the horizon, all the amazing colors - it was amazing and calming. So I just had to try to capture that feeling in \n- Melanie: I feel the same way! Art is so cool like that - it connects us and helps us understand each other. I was actually just remembering on 24 August 2023, spending the day with my fam volunteering at a homeless shelt\n\n## Preferences\n- Caroline hey, Mel! How's it going? There's something I want to tell you. I went hiking last week and got into a bad spot with some people. It really bugged me, so I tried to apologize to them.\n- Melanie wow Caroline, that looks amazing! Those colors are so vivid, it really looks like a real sunset. What gave you the idea to paint it?\n- Caroline finding a co",
+        "title": "Melanie yeah, I made it in pottery class on 24 August 2023. I love it! P",
+        "source_path": "/workspace/evals/results/locomo_work/conv-26/vault/research/agent-memory/reflections/Melanie yeah, I made it in pottery class on 24 August 2023. I love it! P.md",
+        "memory_type": "note",
+        "score": 1.0,
+        "provenance": {
+          "source": "basic-memory-direct",
+          "raw_score": 0.6499999999999999,
+          "rrf_score": 1.0,
+          "relevance_score": 1.0,
+          "salience_component": 0.0
+        }
+      },
+      {
+        "id": "basic-memory-direct-1",
+        "text": "# Melanie hey Caroline, that roadtrip this past weekend was insane! We wer\n\nAuto-extracted from project session conv-26-session_18. 7 signals: 0 decisions, 3 facts, 4 preferences, 0 procedures. Entities: Melanie, Hey Caroline, It, Thankfully, Caroline.\n\n## Facts\n- Melanie hey Caroline, that roadtrip this past weekend was insane! We were all freaked when my son got into an accident. We were so lucky he was okay. It was a real scary experience. Thankfully it's over now. What's been \n- Melanie yeah, our trip got off to a bad start. I was really scared when we got into the accident. Thankfully, my son's ok and that was a reminder that life is precious and to cherish our family.\n- Melanie thanks, Caroline! Yup, we just did it on 19 October 2023! The kids loved it and it was a nice way to relax after the road trip.\n\n## Preferences\n- Caroline glad your son is okay, Melanie. Life's unpredictable, but moments like these remind us how important our loved ones are. Family's everything.\n- Caroline it's so sweet to see your love for your family, Melanie. They really are your rock.\n- Caroline wow, great pic! Is that recent? Looks like you all had fun!\n- Melanie absolutely! It really helps me res",
+        "title": "Melanie hey Caroline, that roadtrip this past weekend was insane! We wer",
+        "source_path": "/workspace/evals/results/locomo_work/conv-26/vault/research/agent-memory/reflections/Melanie hey Caroline, that roadtrip this past weekend was insane! We wer.md",
+        "memory_type": "note",
+        "score": 0.9838709677419354,
+        "provenance": {
+          "source": "basic-memory-direct",
+          "raw_score": 0.6499999999999999,
+          "rrf_score": 0.9838709677419354,
+          "relevance_score": 0.9838709677419354,
+          "salience_component": 0.0
+        }
+      },
+      {
+        "id": "basic-memory-direct-2",
+        "text": "# Melanie- I'll always remember our camping trip in 2022 when we saw the P\n\nAuto-extracted from project session conv-26-session_10. 5 signals: 0 decisions, 1 facts, 4 preferences, 0 procedures. Entities: Caroline, Hey Melanie, Just, Melanie, Hey Caroline.\n\n## Facts\n- Melanie: I'll always remember our camping trip in 2022 when we saw the Perseid meteor shower. It was so amazing lying there and watching the sky light up with streaks of light. We all made wishes and felt so at one with \n\n## Preferences\n- Caroline last weekend our city held a pride parade! So many people marched through the streets waving flags, holding signs and celebrating love and diversity. I missed it but it was a powerful reminder that we are not al\n- Melanie seeing my kids' faces so happy at the beach was the best! We don't go often, usually only once or twice a year. But those times are always special to spend time together and chill.\n- Melanie: We always look forward to our family camping trip. We roast marshmallows, tell stories around the campfire and just enjoy each other's company. It's the highlight of our summer!\n- Melanie the sky was so clear and filled with stars, and the meteor shower was amazing - it",
+        "title": "Melanie- I'll always remember our camping trip in 2022 when we saw the P",
+        "source_path": "/workspace/evals/results/locomo_work/conv-26/vault/research/agent-memory/reflections/Melanie- I'll always remember our camping trip in 2022 when we saw the P.md",
+        "memory_type": "note",
+        "score": 0.9682539682539681,
+        "provenance": {
+          "source": "basic-memory-direct",
+          "raw_score": 0.6499999999999999,
+          "rrf_score": 0.9682539682539681,
+          "relevance_score": 0.9682539682539681,
+          "salience_component": 0.0
+        }
+      }
+    ],
+    "title": "Caroline- I chose them 'cause they help LGBTQ+ folks with adoption. Thei",
+    "folder": "research/agent-memory/reflections",
+    "atoms": {
+      "created": [
+        "atom:fact:caroline-researched-researching-adoption-agencie:f57e4e19",
+        "atom:fact:caroline-thanks-mel-my-goal-is-to-give-kids-a-lo:5df64051",
+        "atom:preference:caroline-i-totally-agree-melanie-taking-care-of-:5bb05ae5",
+        "atom:preference:melanie-no-doubts-caroline-you-have-such-a-carin:816dab80",
+        "atom:decision:caroline-i-chose-them-cause-they-help-lgbtq-folk:524d619c"
+      ],
+      "duplicates": [],
+      "superseded": [],
+      "count": 5
+    },
+    "reflection": {
+      "source_refs": [
+        "session:conv-26-session_2"
+      ],
+      "summary": "Auto-extracted from project session conv-26-session_2. 5 signals: 1 decisions, 2 facts, 2 preferences, 0 procedures. Entities: Melanie, Hey Caroline, Really, Caroline, Mel.",
+      "facts": [
+        "Caroline researched Researching adoption agencies — it's been a dream to have a family and give a loving home to kids who need it",
+        "Caroline thanks, Mel! My goal is to give kids a loving home. I'm truly grateful for all the support I've got from friends and mentors. Now the hard work starts to turn my dream into a reality. And here's one of the adopt"
+      ],
+      "preferences": [
+        "Caroline: I totally agree, Melanie. Taking care of ourselves is so important - even if it's not always easy. Great that you're prioritizing self-care.",
+        "Melanie no doubts, Caroline. You have such a caring heart - they'll get all the love and stability they need! Excited for this new chapter!"
+      ],
+      "decisions": [
+        "Caroline: I chose them 'cause they help LGBTQ+ folks with adoption. Their inclusivity and support really spoke to me."
+      ],
+      "procedures": [],
+      "open_questions": []
+    }
+  },
+  "source_refs": [
+    "session:conv-26-session_2"
+  ]
+}

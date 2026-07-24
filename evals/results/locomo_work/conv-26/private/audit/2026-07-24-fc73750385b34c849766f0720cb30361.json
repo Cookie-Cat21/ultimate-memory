@@ -1,0 +1,17 @@
+{
+  "id": "fc73750385b34c849766f0720cb30361",
+  "action": "ingest_log",
+  "created_at": "2026-07-24T02:43:12.117613+00:00",
+  "payload": {
+    "client": "locomo",
+    "session_id": "conv-26-session_15",
+    "path": "/workspace/evals/results/locomo_work/conv-26/private/logs/locomo/20260724T024312Z-conv-26-session-15.md",
+    "chunks": 34,
+    "turn_chunks": 28,
+    "turn_atoms": 28,
+    "qdrant_chunks": 0,
+    "graph_chunks": 0,
+    "auto_reflected": true
+  },
+  "source_refs": []
+}

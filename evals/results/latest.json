@@ -1,0 +1,266 @@
+{
+  "locomo": {
+    "benchmark": "locomo10",
+    "elapsed_sec": 2.087,
+    "questions": 20,
+    "overall": {
+      "n": 20,
+      "token_f1": 8.84,
+      "constraint_acc": 10.0
+    },
+    "evidence_recall": 44.17,
+    "by_category": {
+      "multi_hop": {
+        "n": 8,
+        "token_f1": 1.47,
+        "constraint_acc": 0.0
+      },
+      "open_domain": {
+        "n": 2,
+        "token_f1": 0.0,
+        "constraint_acc": 0.0
+      },
+      "temporal": {
+        "n": 10,
+        "token_f1": 16.5,
+        "constraint_acc": 20.0
+      }
+    },
+    "vs_a_mem_f1": {
+      "multi_hop_ours": 1.47,
+      "multi_hop_amem": 27.02,
+      "temporal_ours": 16.5,
+      "temporal_amem": 45.85
+    },
+    "worst": [
+      {
+        "sample_id": "conv-26",
+        "category": "temporal",
+        "question": "When did Melanie paint a sunrise?",
+        "answer": "Melanie: Agreed, Caroline",
+        "gold": [
+          "2022"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 0.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "open_domain",
+        "question": "What fields would Caroline be likely to pursue in her educaton?",
+        "answer": "Caroline: Yeah, definitely!",
+        "gold": [
+          "Psychology, counseling certification"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 0.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "multi_hop",
+        "question": "What is Caroline's identity?",
+        "answer": "Caroline: Yeah, definitely!",
+        "gold": [
+          "Transgender woman"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 0.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "temporal",
+        "question": "When did Melanie run a charity race?",
+        "answer": "Melanie: Agreed, Caroline",
+        "gold": [
+          "The sunday before 25 May 2023"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 1.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "temporal",
+        "question": "When is Melanie planning on going camping?",
+        "answer": "Melanie: Agreed, Caroline",
+        "gold": [
+          "June 2023"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 0.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "multi_hop",
+        "question": "What is Caroline's relationship status?",
+        "answer": "Caroline: Yeah, definitely!",
+        "gold": [
+          "Single"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 0.5
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "temporal",
+        "question": "When did Caroline give a speech at a school?",
+        "answer": "Melanie: Agreed, Caroline",
+        "gold": [
+          "The week before 9 June 2023"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 1.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "temporal",
+        "question": "How long has Caroline had her current group of friends for?",
+        "answer": "Caroline: Thanks, Melanie!",
+        "gold": [
+          "4 years"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 1.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "multi_hop",
+        "question": "Where did Caroline move from 4 years ago?",
+        "answer": "Caroline: Caroline started transitioning three years ago",
+        "gold": [
+          "Sweden"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 1.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "multi_hop",
+        "question": "What career path has Caroline decided to persue?",
+        "answer": "Caroline: Yeah, definitely!",
+        "gold": [
+          "counseling or mental health for Transgender people"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 0.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "open_domain",
+        "question": "Would Caroline still want to pursue counseling as a career if she hadn't received support growing up?",
+        "answer": "Yes",
+        "gold": [
+          "Likely no"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 0.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "multi_hop",
+        "question": "What activities does Melanie partake in?",
+        "answer": "- Caroline wow, Melanie!",
+        "gold": [
+          "pottery, camping, painting, swimming"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 0.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "temporal",
+        "question": "When did Melanie sign up for a pottery class?",
+        "answer": "Melanie: Agreed, Caroline",
+        "gold": [
+          "2 July 2023"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 0.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "temporal",
+        "question": "When is Caroline going to the transgender conference?",
+        "answer": "Melanie: Agreed, Caroline",
+        "gold": [
+          "July 2023"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 1.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "multi_hop",
+        "question": "Where has Melanie camped?",
+        "answer": "Melanie: Thanks, Caroline!",
+        "gold": [
+          "beach, mountains, forest"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 0.3333
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "multi_hop",
+        "question": "What do Melanie's kids like?",
+        "answer": "Melanie: Nope, never been to something like that",
+        "gold": [
+          "dinosaurs, nature"
+        ],
+        "f1": 0.0,
+        "evidence_recall": 0.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "multi_hop",
+        "question": "What did Caroline research?",
+        "answer": "Caroline: Caroline recommends doing research, preparing emotionally, and gathering necessary documents when starting the adoption process",
+        "gold": [
+          "Adoption agencies"
+        ],
+        "f1": 0.1176,
+        "evidence_recall": 0.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "temporal",
+        "question": "When did Caroline meet up with her friends, family, and mentors?",
+        "answer": "October 20, 2023",
+        "gold": [
+          "The week before 9 June 2023"
+        ],
+        "f1": 0.25,
+        "evidence_recall": 1.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "temporal",
+        "question": "How long ago was Caroline's 18th birthday?",
+        "answer": "Caroline: Caroline started transitioning three years ago",
+        "gold": [
+          "10 years ago"
+        ],
+        "f1": 0.4,
+        "evidence_recall": 1.0
+      },
+      {
+        "sample_id": "conv-26",
+        "category": "temporal",
+        "question": "When did Caroline go to the LGBTQ support group?",
+        "answer": "7 May 2023",
+        "gold": [
+          "7 May 2023"
+        ],
+        "f1": 1.0,
+        "evidence_recall": 1.0
+      }
+    ],
+    "reference": {
+      "a_mem_locomo_f1": {
+        "multi_hop": 27.02,
+        "temporal": 45.85
+      },
+      "mem0_paper_locomo_j_overall": 66.88,
+      "note": "Vendor J-scores need LLM judge; we optimize token F1 + synthetic constraints."
+    }
+  }
+}

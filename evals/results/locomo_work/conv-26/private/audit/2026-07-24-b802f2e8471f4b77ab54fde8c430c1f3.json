@@ -1,0 +1,100 @@
+{
+  "id": "b802f2e8471f4b77ab54fde8c430c1f3",
+  "action": "reflect",
+  "created_at": "2026-07-24T02:43:11.960389+00:00",
+  "payload": {
+    "candidate_id": "43ad72455c2240fba4f5fe7483ea10aa",
+    "confidence": 0.95,
+    "canonical_written": true,
+    "duplicate_hits": [
+      {
+        "id": "basic-memory-direct-0",
+        "text": "# Melanie- I'll always remember our camping trip in 2022 when we saw the P\n\nAuto-extracted from project session conv-26-session_10. 5 signals: 0 decisions, 1 facts, 4 preferences, 0 procedures. Entities: Caroline, Hey Melanie, Just, Melanie, Hey Caroline.\n\n## Facts\n- Melanie: I'll always remember our camping trip in 2022 when we saw the Perseid meteor shower. It was so amazing lying there and watching the sky light up with streaks of light. We all made wishes and felt so at one with \n\n## Preferences\n- Caroline last weekend our city held a pride parade! So many people marched through the streets waving flags, holding signs and celebrating love and diversity. I missed it but it was a powerful reminder that we are not al\n- Melanie seeing my kids' faces so happy at the beach was the best! We don't go often, usually only once or twice a year. But those times are always special to spend time together and chill.\n- Melanie: We always look forward to our family camping trip. We roast marshmallows, tell stories around the campfire and just enjoy each other's company. It's the highlight of our summer!\n- Melanie the sky was so clear and filled with stars, and the meteor shower was amazing - it",
+        "title": "Melanie- I'll always remember our camping trip in 2022 when we saw the P",
+        "source_path": "/workspace/evals/results/locomo_work/conv-26/vault/research/agent-memory/reflections/Melanie- I'll always remember our camping trip in 2022 when we saw the P.md",
+        "memory_type": "note",
+        "score": 1.0,
+        "provenance": {
+          "source": "basic-memory-direct",
+          "raw_score": 0.6499999999999999,
+          "rrf_score": 1.0,
+          "relevance_score": 1.0,
+          "salience_component": 0.0
+        }
+      },
+      {
+        "id": "basic-memory-direct-1",
+        "text": "# Caroline- I'm always here for you, Mel! We had a blast in 2022 at the Pr\n\nAuto-extracted from project session conv-26-session_12. 4 signals: 0 decisions, 1 facts, 3 preferences, 0 procedures. Entities: Caroline, Hey Mel, Recently, It, Melanie.\n\n## Facts\n- Caroline: I'm always here for you, Mel! We had a blast in 2022 at the Pride fest. Those supportive friends definitely make everything worth it!\n\n## Preferences\n- Melanie thanks, Caroline! Your words really mean a lot. I've always felt a strong connection to art, and it's been a huge learning experience. It's both a sanctuary and a source of comfort. I'm so glad to have something \n- Caroline definitely, Mel! Finding those happy moments and clinging to them is key. It's what keeps us going, even when life's hard. I'm lucky to have people like you to remind me.\n- Melanie: I appreciate our friendship too, Caroline. You've always been there for me.\n\n## Decisions\n\n## Procedures\n\n## Open Questions\n\n## Source Refs\n- session:conv-26-session_12\n\n## Relations\n- relates_to [[Shared Claude Codex Agentic Memory Goal]]\n- from_project [[project]]\n- mentions [[Caroline]]\n- mentions [[Hey Mel]]\n- mentions [[Recently]]\n- mentions [[It]]\n- mentions",
+        "title": "Caroline- I'm always here for you, Mel! We had a blast in 2022 at the Pr",
+        "source_path": "/workspace/evals/results/locomo_work/conv-26/vault/research/agent-memory/reflections/Caroline- I'm always here for you, Mel! We had a blast in 2022 at the Pr.md",
+        "memory_type": "note",
+        "score": 0.9838709677419354,
+        "provenance": {
+          "source": "basic-memory-direct",
+          "raw_score": 0.6499999999999999,
+          "rrf_score": 0.9838709677419354,
+          "relevance_score": 0.9838709677419354,
+          "salience_component": 0.0
+        }
+      },
+      {
+        "id": "basic-memory-direct-2",
+        "text": "# Caroline went to a LGBTQ support group on 7 May 2023 and it was so power\n\nAuto-extracted from project session conv-26-session_1. 5 signals: 0 decisions, 2 facts, 3 preferences, 0 procedures. Entities: Caroline, Hey Mel, Melanie, Hey Caroline, Anything.\n\n## Facts\n- Caroline went to a LGBTQ support group on 7 May 2023 and it was so powerful\n- Melanie yeah, I painted that lake sunrise in 2022! It's special to me.\n\n## Preferences\n- Melanie wow, love that painting! So cool you found such a helpful group. What's it done for you?\n- Caroline: I'm keen on counseling or working in mental health - I'd love to support those with similar issues.\n- Caroline wow, Melanie! The colors really blend nicely. Painting looks like a great outlet for expressing yourself.\n\n## Decisions\n\n## Procedures\n\n## Open Questions\n\n## Source Refs\n- session:conv-26-session_1\n\n## Relations\n- relates_to [[Shared Claude Codex Agentic Memory Goal]]\n- from_project [[project]]\n- mentions [[Caroline]]\n- mentions [[Hey Mel]]\n- mentions [[Melanie]]\n- mentions [[Hey Caroline]]\n- mentions [[Anything]]\n- mentions [[Wow]]\n- mentions [[Did]]\n- mentions [[So]]\n- mentions [[You]]\n- mentions [[Gonna]]\n- mentions [[Your]]\n- mentions [",
+        "title": "Caroline went to a LGBTQ support group on 7 May 2023 and it was so power",
+        "source_path": "/workspace/evals/results/locomo_work/conv-26/vault/research/agent-memory/reflections/Caroline went to a LGBTQ support group on 7 May 2023 and it was so power.md",
+        "memory_type": "note",
+        "score": 0.9682539682539681,
+        "provenance": {
+          "source": "basic-memory-direct",
+          "raw_score": 0.6499999999999999,
+          "rrf_score": 0.9682539682539681,
+          "relevance_score": 0.9682539682539681,
+          "salience_component": 0.0
+        }
+      }
+    ],
+    "title": "Caroline hi Melanie! Hope you're doing good. Guess what I did this week",
+    "folder": "research/agent-memory/reflections",
+    "atoms": {
+      "created": [
+        "atom:fact:caroline-hi-melanie-hope-you-re-doing-good-guess:17dcdf12",
+        "atom:fact:caroline-that-s-so-funny-i-used-to-go-horseback-:a24946ec",
+        "atom:preference:caroline-wow-melanie-that-s-amazing-love-all-the:6c1d6e32",
+        "atom:preference:melanie-thanks-caroline-glad-you-like-it-yeah-i-:cf357786",
+        "atom:preference:caroline-painting-s-great-for-expressing-myself-:5841e3e3",
+        "atom:preference:caroline-thanks-melanie-art-gives-me-a-sense-of-:97e1f707"
+      ],
+      "duplicates": [],
+      "superseded": [
+        {
+          "old_id": "atom:turn:conv-26-session-13:D13:1",
+          "old_text": "Caroline: Hi Melanie! Hope you're doing good. Guess what I did this week? I took the first step towards becoming a mom - I applied to adoption agencies! It's a big decision, but I think I'm ready to give all my love to a child. I got lots of help from this adoption advice/assistance group I attended. It was great!",
+          "score": 0.765
+        }
+      ],
+      "count": 6
+    },
+    "reflection": {
+      "source_refs": [
+        "session:conv-26-session_13"
+      ],
+      "summary": "Auto-extracted from project session conv-26-session_13. 6 signals: 0 decisions, 2 facts, 4 preferences, 0 procedures. Entities: Caroline, Hope, Guess, It, Melanie.",
+      "facts": [
+        "Caroline hi Melanie! Hope you're doing good. Guess what I did this week? I took the first step towards becoming a mom - I applied to adoption agencies! It's a big decision, but I think I'm ready to give all my love to a ",
+        "Caroline that's so funny! I used to go horseback riding with my dad when I was a kid, we'd go through the fields, feeling the wind. It was so special. I've always had a love for horses!"
+      ],
+      "preferences": [
+        "Caroline wow, Melanie, that's amazing! Love all the details and how you got the horse's grace and strength. Do you like painting animals?",
+        "Melanie thanks, Caroline! Glad you like it. Yeah, I love to. It's peaceful and special. Horses have such grace! Do you like to paint too?",
+        "Caroline painting's great for expressing myself. I love creating art! Here's a recent self-portrait I made last week.",
+        "Caroline thanks, Melanie. Art gives me a sense of freedom, but so does having supportive people around, promoting LGBTQ rights and being true to myself. I want to live authentically and help others to do the same."
+      ],
+      "decisions": [],
+      "procedures": [],
+      "open_questions": []
+    }
+  },
+  "source_refs": [
+    "session:conv-26-session_13"
+  ]
+}

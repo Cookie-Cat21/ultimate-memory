@@ -1,0 +1,68 @@
+{
+  "id": "4561356d1a2840ee987ea800bbde8ac9",
+  "action": "reflect",
+  "created_at": "2026-07-24T02:42:54.807326+00:00",
+  "payload": {
+    "candidate_id": "2bbfe080776e423ab3121ba5ff2dcdc5",
+    "confidence": 0.6300000000000001,
+    "canonical_written": true,
+    "duplicate_hits": [
+      {
+        "id": "basic-memory-direct-0",
+        "text": "# Random note about weather in Miami being humid.\n\nnoise1\n\n## Facts\n- Random note about weather in Miami being humid.\n\n## Preferences\n\n## Decisions\n\n## Procedures\n\n## Open Questions\n\n## Source Refs\n- n1\n\n## Relations\n- relates_to [[Shared Claude Codex Agentic Memory Goal]]\n",
+        "title": "Random note about weather in Miami being humid.",
+        "source_path": "/workspace/evals/results/synthetic_work/distractor_flood_1/vault/research/agent-memory/reflections/Random note about weather in Miami being humid..md",
+        "memory_type": "note",
+        "score": 1.0,
+        "provenance": {
+          "source": "basic-memory-direct",
+          "raw_score": 0.35,
+          "rrf_score": 1.0,
+          "relevance_score": 1.0,
+          "salience_component": 0.0
+        }
+      },
+      {
+        "id": "basic-memory-direct-1",
+        "text": "# Someone mentioned pizza toppings and pineapple debates.\n\nnoise2\n\n## Facts\n- Someone mentioned pizza toppings and pineapple debates.\n\n## Preferences\n\n## Decisions\n\n## Procedures\n\n## Open Questions\n\n## Source Refs\n- n2\n\n## Relations\n- relates_to [[Shared Claude Codex Agentic Memory Goal]]\n",
+        "title": "Someone mentioned pizza toppings and pineapple debates.",
+        "source_path": "/workspace/evals/results/synthetic_work/distractor_flood_1/vault/research/agent-memory/reflections/Someone mentioned pizza toppings and pineapple debates..md",
+        "memory_type": "note",
+        "score": 0.9838709677419354,
+        "provenance": {
+          "source": "basic-memory-direct",
+          "raw_score": 0.35,
+          "rrf_score": 0.9838709677419354,
+          "relevance_score": 0.9838709677419354,
+          "salience_component": 0.0
+        }
+      }
+    ],
+    "title": "A blog post discussed gardening tomatoes outdoors.",
+    "folder": "research/agent-memory/reflections",
+    "atoms": {
+      "created": [
+        "atom:fact:a-blog-post-discussed-gardening-tomatoes-outdoor:63cf9abc"
+      ],
+      "duplicates": [],
+      "superseded": [],
+      "count": 1
+    },
+    "reflection": {
+      "source_refs": [
+        "n3"
+      ],
+      "summary": "noise3",
+      "facts": [
+        "A blog post discussed gardening tomatoes outdoors."
+      ],
+      "preferences": [],
+      "decisions": [],
+      "procedures": [],
+      "open_questions": []
+    }
+  },
+  "source_refs": [
+    "n3"
+  ]
+}

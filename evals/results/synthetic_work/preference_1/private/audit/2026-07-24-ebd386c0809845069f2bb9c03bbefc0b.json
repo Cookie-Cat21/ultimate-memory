@@ -1,0 +1,37 @@
+{
+  "id": "ebd386c0809845069f2bb9c03bbefc0b",
+  "action": "reflect",
+  "created_at": "2026-07-24T02:42:54.503983+00:00",
+  "payload": {
+    "candidate_id": "43e1837f92d5457da93daa44e73c0c53",
+    "confidence": 0.5800000000000001,
+    "canonical_written": true,
+    "duplicate_hits": [],
+    "title": "Bob prefers concise answers and never wants emojis.",
+    "folder": "research/agent-memory/reflections",
+    "atoms": {
+      "created": [
+        "atom:preference:bob-prefers-concise-answers-and-never-wants-emoj:6f333976"
+      ],
+      "duplicates": [],
+      "superseded": [],
+      "count": 1
+    },
+    "reflection": {
+      "source_refs": [
+        "w2"
+      ],
+      "summary": "prefs",
+      "facts": [],
+      "preferences": [
+        "Bob prefers concise answers and never wants emojis."
+      ],
+      "decisions": [],
+      "procedures": [],
+      "open_questions": []
+    }
+  },
+  "source_refs": [
+    "w2"
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "id": "4926accf2fbb4cdf933b4792b1ee31a7",
+  "action": "reflect",
+  "created_at": "2026-07-24T02:42:54.815219+00:00",
+  "payload": {
+    "candidate_id": "8f13283e1c3a4e81b26a1b15511b22ab",
+    "confidence": 0.6300000000000001,
+    "canonical_written": true,
+    "duplicate_hits": [
+      {
+        "id": "basic-memory-direct-0",
+        "text": "# Random note about weather in Miami being humid.\n\nnoise1\n\n## Facts\n- Random note about weather in Miami being humid.\n\n## Preferences\n\n## Decisions\n\n## Procedures\n\n## Open Questions\n\n## Source Refs\n- n1\n\n## Relations\n- relates_to [[Shared Claude Codex Agentic Memory Goal]]\n",
+        "title": "Random note about weather in Miami being humid.",
+        "source_path": "/workspace/evals/results/synthetic_work/distractor_flood_1/vault/research/agent-memory/reflections/Random note about weather in Miami being humid..md",
+        "memory_type": "note",
+        "score": 1.0,
+        "provenance": {
+          "source": "basic-memory-direct",
+          "raw_score": 0.35,
+          "rrf_score": 1.0,
+          "relevance_score": 1.0,
+          "salience_component": 0.0
+        }
+      },
+      {
+        "id": "basic-memory-direct-1",
+        "text": "# A blog post discussed gardening tomatoes outdoors.\n\nnoise3\n\n## Facts\n- A blog post discussed gardening tomatoes outdoors.\n\n## Preferences\n\n## Decisions\n\n## Procedures\n\n## Open Questions\n\n## Source Refs\n- n3\n\n## Relations\n- relates_to [[Shared Claude Codex Agentic Memory Goal]]\n",
+        "title": "A blog post discussed gardening tomatoes outdoors.",
+        "source_path": "/workspace/evals/results/synthetic_work/distractor_flood_1/vault/research/agent-memory/reflections/A blog post discussed gardening tomatoes outdoors..md",
+        "memory_type": "note",
+        "score": 0.9838709677419354,
+        "provenance": {
+          "source": "basic-memory-direct",
+          "raw_score": 0.35,
+          "rrf_score": 0.9838709677419354,
+          "relevance_score": 0.9838709677419354,
+          "salience_component": 0.0
+        }
+      },
+      {
+        "id": "basic-memory-direct-2",
+        "text": "# Helena's passport number nickname is Orion-42 for travel planning.\n\nsignal\n\n## Facts\n- Helena's passport number nickname is Orion-42 for travel planning.\n\n## Preferences\n\n## Decisions\n\n## Procedures\n\n## Open Questions\n\n## Source Refs\n- sig\n\n## Relations\n- relates_to [[Shared Claude Codex Agentic Memory Goal]]\n",
+        "title": "Helena's passport number nickname is Orion-42 for travel planning.",
+        "source_path": "/workspace/evals/results/synthetic_work/distractor_flood_1/vault/research/agent-memory/reflections/Helena's passport number nickname is Orion-42 for travel planning..md",
+        "memory_type": "note",
+        "score": 0.9682539682539681,
+        "provenance": {
+          "source": "basic-memory-direct",
+          "raw_score": 0.35,
+          "rrf_score": 0.9682539682539681,
+          "relevance_score": 0.9682539682539681,
+          "salience_component": 0.0
+        }
+      }
+    ],
+    "title": "Meeting notes covered budget spreadsheets for Q3.",
+    "folder": "research/agent-memory/reflections",
+    "atoms": {
+      "created": [
+        "atom:fact:meeting-notes-covered-budget-spreadsheets-for-q3:b5ca35ef"
+      ],
+      "duplicates": [],
+      "superseded": [],
+      "count": 1
+    },
+    "reflection": {
+      "source_refs": [
+        "n4"
+      ],
+      "summary": "noise4",
+      "facts": [
+        "Meeting notes covered budget spreadsheets for Q3."
+      ],
+      "preferences": [],
+      "decisions": [],
+      "procedures": [],
+      "open_questions": []
+    }
+  },
+  "source_refs": [
+    "n4"
+  ]
+}

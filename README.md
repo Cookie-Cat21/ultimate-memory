@@ -26,6 +26,15 @@ The router keeps your Basic Memory / Obsidian vault as the human-readable canon,
 | Local / private | Often cloud | Local-first, Docker optional |
 | Agent interface | SDK / REST | MCP tools for Claude + Codex |
 
+### Benchmarks (offline, no paid LLM judge)
+
+```bash
+uv run python evals/run_benchmarks.py --suite synthetic
+uv run python evals/run_benchmarks.py --suite locomo --quick
+```
+
+Latest synthetic router suite: **~93% token F1**, **100% constraint accuracy** on update / contradiction / preference / multi-hop / temporal probes. See [`evals/RESULTS.md`](evals/RESULTS.md).
+
 Fallback mode still works if Docker is down: Basic Memory + direct markdown + SQLite FTS + atoms.
 
 ## Quick Start

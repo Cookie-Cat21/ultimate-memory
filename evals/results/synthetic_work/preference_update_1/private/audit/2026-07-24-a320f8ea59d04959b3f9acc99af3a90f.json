@@ -1,0 +1,37 @@
+{
+  "id": "a320f8ea59d04959b3f9acc99af3a90f",
+  "action": "reflect",
+  "created_at": "2026-07-24T02:42:54.848780+00:00",
+  "payload": {
+    "candidate_id": "2a59ededc39048ce96fb0ec8bbc0bc86",
+    "confidence": 0.5800000000000001,
+    "canonical_written": true,
+    "duplicate_hits": [],
+    "title": "I always prefer dark mode in the editor.",
+    "folder": "research/agent-memory/reflections",
+    "atoms": {
+      "created": [
+        "atom:preference:i-always-prefer-dark-mode-in-the-editor:86a80467"
+      ],
+      "duplicates": [],
+      "superseded": [],
+      "count": 1
+    },
+    "reflection": {
+      "source_refs": [
+        "p1"
+      ],
+      "summary": "p1",
+      "facts": [],
+      "preferences": [
+        "I always prefer dark mode in the editor."
+      ],
+      "decisions": [],
+      "procedures": [],
+      "open_questions": []
+    }
+  },
+  "source_refs": [
+    "p1"
+  ]
+}
