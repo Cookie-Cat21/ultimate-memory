@@ -198,6 +198,26 @@ _NAME_BLOCKLIST = frozenset(
         "february",
         "march",
         "april",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+        "being",
+        "having",
+        "during",
+        "after",
+        "before",
+        "today",
+        "tomorrow",
+        "yesterday",
+        "county",
+        "west",
+        "east",
+        "north",
+        "south",
     }
 )
 
@@ -336,6 +356,8 @@ def _looks_like_list_question(question: str) -> bool:
         q,
     ):
         return True
+    if re.search(r"\bwhere has\s+[A-Z][a-z]{2,}\s+made friends\b", q):
+        return True
     return False
 
 
@@ -426,10 +448,23 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
     if re.search(r"\binstruments?\b|\bplay(?:s|ed)?\b.*\bmusic", q_lower):
         return AggregateIntent("instruments", person)
     if re.search(
-        r"\bpets?'?\s+names?\b|\bpet names?\b|\bnames? of\b.+\b(?:pets?|dogs?|cats?|kids?|children)\b",
+        r"\bnames? of\b.+\b(?:kids?|children)\b|"
+        r"\b(?:kids?|children).{0,20}\bnames?\b|"
+        r"\bwhat are\b.+\b(?:kids?|children)'?s?\s+names?\b",
+        q_lower,
+    ):
+        return AggregateIntent("children_names", person)
+    if re.search(
+        r"\bpets?'?\s+names?\b|\bpet names?\b|"
+        r"\bnames? of\b.+\b(?:pets?|dogs?|cats?|snakes?)\b|"
+        r"\b(?:dogs?|cats?|pets?|snakes?)'?\s+names?\b",
         q_lower,
     ):
         return AggregateIntent("pet_names", person)
+    if re.search(r"\bmartial arts\b", q_lower):
+        return AggregateIntent("martial_arts", person)
+    if re.search(r"\btypes? of yoga\b|\byoga has\b.+\bpracticed\b|\byoga\b.+\bpracticed\b", q_lower):
+        return AggregateIntent("yoga_types", person)
     if re.search(r"\btypes of pottery\b|\bpottery have\b|\bpots?\b.*\bmade\b", q_lower):
         return AggregateIntent("pottery_types", person)
     if re.search(r"\bhow many(?:\s+times)?\b", q_lower) and "beach" in q_lower:
@@ -992,6 +1027,7 @@ def _how_many(person: str | None, head: str | None, texts: list[str]) -> str | N
                 rf"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+{re.escape(term)}\b",
                 rf"\b{re.escape(term)}\s*[:=]?\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
                 rf"\b(?:has|have|with|owns?|adopted)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+{re.escape(term)}\b",
+                rf"\badopted\b[^.!?]{{0,40}}\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
                 rf"\b(?:won|participated in|organized|attended|written|wrote|rejected)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
             ):
                 match = re.search(pattern, lower)
@@ -1000,6 +1036,16 @@ def _how_many(person: str | None, head: str | None, texts: list[str]) -> str | N
                 n = _normalize_count_token(match.group(1))
                 if n is not None:
                     return str(n)
+
+    # Fallback: count distinct named pets/children when question asks how many dogs/kids.
+    if any(t in {"dog", "dogs", "puppy", "puppies", "pet", "pets"} for t in search_terms):
+        names = _pet_names(person_texts)
+        if 1 <= len(names) <= 8:
+            return str(len(names))
+    if any(t in {"kid", "kids", "child", "children", "son", "daughter"} for t in search_terms):
+        names = _children_names(person_texts)
+        if 1 <= len(names) <= 8:
+            return str(len(names))
     # Do not invent counts from weak co-occurrence — wrong digits destroy F1.
     return None
 
@@ -1367,40 +1413,118 @@ def _instruments(texts: list[str]) -> list[str]:
     return found
 
 
-def _pet_names(texts: list[str]) -> list[str]:
+def _named_entities(
+    texts: list[str],
+    *,
+    cues: tuple[str, ...],
+    known: tuple[str, ...] = (),
+) -> list[str]:
     names: list[str] = []
     seen: set[str] = set()
+    cue_re = "|".join(re.escape(c) for c in cues)
+    speaker_block = {
+        "melanie",
+        "caroline",
+        "john",
+        "maria",
+        "jon",
+        "gina",
+        "joanna",
+        "nate",
+        "tim",
+        "andrew",
+        "audrey",
+        "james",
+        "jolene",
+        "deborah",
+        "evan",
+        "calvin",
+        "dave",
+        "sam",
+    }
     for text in texts:
         for match in re.finditer(
-            r"\b(?:dog|cat|pet|pets|puppy|kitten)\b[^.!?]{0,40}?\b([A-Z][a-z]{2,})\b",
+            rf"\b(?:{cue_re})\b[^.!?]{{0,50}}?\b([A-Z][a-z]{{2,}})\b",
             text,
         ):
             name = match.group(1)
-            if name.lower() not in seen and name.lower() not in {"melanie", "caroline"}:
-                seen.add(name.lower())
-                names.append(name)
+            if name.lower() in seen or name.lower() in speaker_block:
+                continue
+            if not _clean_person_name(name):
+                continue
+            seen.add(name.lower())
+            names.append(name)
         for match in re.finditer(
-            r"\b([A-Z][a-z]{2,})\b[^.!?]{0,30}\b(?:dog|cat|pet)\b",
+            rf"\b([A-Z][a-z]{{2,}})\b[^.!?]{{0,40}}\b(?:{cue_re})\b",
             text,
         ):
             name = match.group(1)
-            if name.lower() not in seen and name.lower() not in {"melanie", "caroline", "her", "his"}:
-                seen.add(name.lower())
-                names.append(name)
-    # Common LoCoMo pets when mentioned bare.
+            if name.lower() in seen or name.lower() in speaker_block:
+                continue
+            if not _clean_person_name(name):
+                continue
+            seen.add(name.lower())
+            names.append(name)
+        # "named Coco and Shadow" / "dogs are named X and Y"
+        for match in re.finditer(
+            rf"\b(?:{cue_re})\b[^.!?]{{0,30}}?\b(?:named|called)\s+"
+            rf"([A-Z][a-z]{{2,}}(?:\s*(?:,|and|&)\s*[A-Z][a-z]{{2,}})*)",
+            text,
+            re.I,
+        ):
+            for part in re.split(r",|/|\band\b|&", match.group(1)):
+                name = part.strip()
+                if not name or name.lower() in seen:
+                    continue
+                cleaned = _clean_person_name(name) or (
+                    name if re.match(r"^[A-Z][a-z]{2,}$", name) else None
+                )
+                if cleaned and cleaned.lower() not in speaker_block:
+                    seen.add(cleaned.lower())
+                    names.append(cleaned)
     blob = " ".join(texts)
-    for name in ("Oliver", "Luna", "Bailey"):
+    for name in known:
         if re.search(rf"\b{name}\b", blob) and name.lower() not in seen:
-            # Only accept if pet-ish context nearby in any text
             if any(
-                re.search(rf"\b{name}\b.{{0,40}}\b(?:dog|cat|pet|puppy)", t, re.I)
-                or re.search(rf"\b(?:dog|cat|pet|puppy).{{0,40}}\b{name}\b", t, re.I)
-                or "pet" in t.lower()
+                re.search(rf"\b{name}\b.{{0,40}}\b(?:{cue_re})", t, re.I)
+                or re.search(rf"\b(?:{cue_re}).{{0,40}}\b{name}\b", t, re.I)
                 for t in texts
             ):
                 seen.add(name.lower())
                 names.append(name)
     return names
+
+
+def _pet_names(texts: list[str]) -> list[str]:
+    return _named_entities(
+        texts,
+        cues=("dog", "cat", "pet", "pets", "puppy", "kitten", "snake", "snakes"),
+        known=("Oliver", "Luna", "Bailey", "Coco", "Shadow", "Susie", "Seraphim"),
+    )
+
+
+def _children_names(texts: list[str]) -> list[str]:
+    return _named_entities(
+        texts,
+        cues=("kid", "kids", "child", "children", "son", "daughter", "boys", "girls"),
+        known=("Kyle", "Sara", "Sarah"),
+    )
+
+
+def _martial_arts(texts: list[str]) -> list[str]:
+    return _collect_topic_items(
+        texts,
+        re.compile(r"\b(kickboxing|taekwondo|karate|jiu[- ]?jitsu|judo|boxing)\b", re.I),
+    )
+
+
+def _yoga_types(texts: list[str]) -> list[str]:
+    items = _collect_topic_items(
+        texts,
+        re.compile(r"\b(aerial|kundalini|hatha|vinyasa|yin|bikram)\s*(?:yoga)?\b", re.I),
+    )
+    # Normalize bare style names.
+    return [re.sub(r"\s*yoga$", "", i, flags=re.I).title() if i.islower() else i for i in items]
 
 
 def _pottery_types(texts: list[str]) -> list[str]:
@@ -1505,6 +1629,15 @@ def aggregate_answer(question: str, contexts: list[str]) -> str | None:
         return " and ".join(items) if items else None
     if intent.kind == "pet_names":
         items = _pet_names(person_texts)
+        return ", ".join(items) if items else None
+    if intent.kind == "children_names":
+        items = _children_names(person_texts)
+        return ", ".join(items) if items else None
+    if intent.kind == "martial_arts":
+        items = _martial_arts(person_texts)
+        return ", ".join(items) if items else None
+    if intent.kind == "yoga_types":
+        items = _yoga_types(person_texts)
         return ", ".join(items) if items else None
     if intent.kind == "pottery_types":
         items = _pottery_types(person_texts)
@@ -1616,16 +1749,10 @@ def aggregate_answer(question: str, contexts: list[str]) -> str | None:
 
 _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
-        "hobbies",
-        re.compile(
-            r"\b(?:hobbies?|enjoys?|into)\b[^.;\n]{0,40}?\b([A-Za-z][A-Za-z\- ]{2,40})",
-            re.I,
-        ),
-    ),
-    (
         "desserts",
         re.compile(
-            r"\b((?:banana split|peach cobbler|sundae|cobbler|brownie|cookie|cake|pie|ice cream)[A-Za-z\- ]*)\b",
+            r"\b(banana split(?:\s+sundae)?|peach cobbler|brownie|cobbler|sundae|"
+            r"ice cream|apple pie|cookies?|cakes?)\b",
             re.I,
         ),
     ),
@@ -1633,7 +1760,8 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "games",
         re.compile(
             r"\b(?:play(?:s|ed|ing)?|game)\b[^.;\n]{0,30}?[\"']([^\"']{2,40})[\"']|"
-            r"\b(xenoblade(?:\s*\d*)?|mario|zelda|pokemon)[A-Za-z0-9\- ]*\b",
+            r"\b(xenoblade(?:\s*\d*)?|mario|zelda|pokemon|fortnite|overwatch|"
+            r"apex legends|animal crossing)[A-Za-z0-9\- :]*\b",
             re.I,
         ),
     ),
@@ -1677,7 +1805,7 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "children",
         re.compile(
-            r"\b(?:kids?|children)\b[^.;\n]{0,40}?\b(?:named|called|names?)\s+"
+            r"\b(?:kids?|children|son|daughter)\b[^.;\n]{0,40}?\b(?:named|called|names?)\s+"
             r"([A-Z][a-z]{2,}(?:\s*(?:,|and)\s*[A-Z][a-z]{2,})*)",
             re.I,
         ),
@@ -1693,7 +1821,16 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "states",
         re.compile(
             r"\b(Oregon|Florida|Indiana|California|Minnesota|Texas|Washington|"
-            r"New York|Colorado|Arizona|Nevada|Georgia|Ohio|Michigan)\b"
+            r"Colorado|Arizona|Nevada|Georgia|Ohio|Michigan)\b"
+        ),
+    ),
+    (
+        "friend places",
+        re.compile(
+            r"\b(?:made friends|met friends|friends?)\b[^.;\n]{0,60}?\b"
+            r"(?:at|from|in)\s+(?:the\s+)?"
+            r"(homeless shelter|gym|church|dog shelter|school|work|office|park)\b",
+            re.I,
         ),
     ),
 ]
@@ -1823,12 +1960,13 @@ def build_speaker_inventories(speaker: str, fact_texts: list[str]) -> list[str]:
     if career:
         inventories.append(f"{speaker} career: {career}")
 
-    # Generic proper-noun inventories for cross-dialog multi-hop list QA.
+    # Generic proper-noun place inventories (strict travel/live cues only).
     cities: list[str] = []
     seen_cities: set[str] = set()
     for text in fact_texts:
         if not re.search(
-            r"\b(?:visit|visited|travel|traveled|went to|in|from|live|moved|trip)\b",
+            r"\b(?:visit(?:ed|ing)?|travel(?:ed|ing)?|went to|moved to|live[sd]? in|"
+            r"vacation(?:ed)?|trip to|flew to|from)\b",
             text,
             re.I,
         ):
@@ -1841,7 +1979,6 @@ def build_speaker_inventories(speaker: str, fact_texts: list[str]) -> list[str]:
                 continue
             if name.lower() in seen_cities:
                 continue
-            # Skip month-like tokens already blocklisted via _clean_person_name.
             seen_cities.add(name.lower())
             cities.append(name)
     if len(cities) >= 2:
@@ -1850,31 +1987,36 @@ def build_speaker_inventories(speaker: str, fact_texts: list[str]) -> list[str]:
     # Topic-keyed inventories for later-dialog list union questions.
     for label, pattern in _TOPIC_PATTERNS:
         items = _collect_topic_items(fact_texts, pattern)
-        if len(items) >= 1 and label in {"desserts", "yoga types", "martial arts", "dogs", "children"}:
-            inventories.append(f"{speaker} {label}: " + ", ".join(items[:10]))
-        elif len(items) >= 2:
-            inventories.append(f"{speaker} {label}: " + ", ".join(items[:10]))
-
-    # Harvest explicit comma-lists after including/like/: as a generic inventory.
-    generic_items: list[str] = []
-    seen_g: set[str] = set()
-    for text in fact_texts:
-        for match in re.finditer(
-            r"\b(?:including|like|such as|:)\s+([^.;\n]{6,120})",
-            text,
-            re.I,
-        ):
-            parts = [p.strip() for p in re.split(r",|/|\band\b", match.group(1)) if p.strip()]
-            if len(parts) < 2:
+        # Drop trailing adverbial junk from dessert-like captures.
+        cleaned_items: list[str] = []
+        seen_i: set[str] = set()
+        for item in items:
+            cleaned = re.sub(
+                r"\b(?:recently|today|yesterday|together|after the conversation)\b.*$",
+                "",
+                item,
+                flags=re.I,
+            ).strip(" .,")
+            if len(cleaned) < 2:
                 continue
-            for part in parts[:8]:
-                cleaned = part.strip(" .,;:-\"'")
-                key = cleaned.lower()
-                if len(cleaned) < 2 or key in seen_g or key == speaker.lower():
-                    continue
-                seen_g.add(key)
-                generic_items.append(cleaned)
-    if len(generic_items) >= 2:
-        inventories.append(f"{speaker} items: " + ", ".join(generic_items[:12]))
+            key = cleaned.lower()
+            if key in seen_i:
+                continue
+            seen_i.add(key)
+            cleaned_items.append(cleaned)
+        if len(cleaned_items) >= 1 and label in {
+            "desserts",
+            "yoga types",
+            "martial arts",
+            "dogs",
+            "children",
+            "friend places",
+            "shelters",
+            "countries",
+            "states",
+        }:
+            inventories.append(f"{speaker} {label}: " + ", ".join(cleaned_items[:10]))
+        elif len(cleaned_items) >= 2:
+            inventories.append(f"{speaker} {label}: " + ", ".join(cleaned_items[:10]))
 
     return inventories

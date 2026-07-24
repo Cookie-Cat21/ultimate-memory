@@ -455,6 +455,9 @@ class MemoryRouter:
             "supporters",
             "both_painted",
             "both_intersection",
+            "martial_arts",
+            "yoga_types",
+            "children_names",
         }
         short_kinds = {
             "relationship_status",
@@ -501,6 +504,9 @@ class MemoryRouter:
                 "destress",
                 "painted_subjects",
                 "painted_recently",
+                "martial_arts",
+                "yoga_types",
+                "children_names",
             }
             if kind in always:
                 prefer_aggregated = True
