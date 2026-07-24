@@ -24,14 +24,12 @@ LoCoMo cats: 1=multi_hop, 2=temporal, 3=open_domain, 4=single_hop, 5=adversarial
 
 **Summary:** On the full matched token-F1 protocol we beat **A-MEM on 2/4** (single + temporal, large margins), **MemGPT on 3/4** (adds multi-hop), and **MemoryBank/ReadAgent on 4/4**.
 
-## Dialog-1 sweep (152 Qs, same stack)
+## Dialog-1 sweep (152 Qs)
 
-| Category | Ours | A-MEM |
-|---|---:|---:|
-| single_hop | **33.3** | 27.02 ✓ |
-| multi_hop | **60.0** | 45.85 ✓ |
-| temporal | **23.4** | 12.14 ✓ |
-| open_domain | **96.2** | 44.65 ✓ |
+| Model | single | multi | temporal | open | vs A-MEM |
+|---|---:|---:|---:|---:|---|
+| `flan-t5-large` | 33.3 | 60.0 | 23.4 | 96.2 | 4/4 ✓ |
+| `flan-t5-xl` | 33.5 | **66.2** | 22.5 | 96.2 | 4/4 ✓ |
 
 ## Synthetic router suite
 
