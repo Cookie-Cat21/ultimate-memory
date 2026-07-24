@@ -163,15 +163,8 @@ class LocalAnswerer:
         self._model.eval()
         self._torch = torch
 
-    def answer(self, question: str, contexts: list[str]) -> str:
-        """Answer *question* from memory snippets in LoCoMo gold style."""
-        trimmed = [c.strip() for c in contexts if c and c.strip()][:MAX_CONTEXTS]
-        trimmed = [c[:MAX_CONTEXT_CHARS] for c in trimmed]
-        if not trimmed:
-            return ""
-
+    def _generate(self, prompt: str, *, max_new_tokens: int = 48) -> str:
         self._ensure_loaded()
-        prompt = _build_prompt(question, trimmed)
         inputs = self._tokenizer(
             prompt,
             return_tensors="pt",
@@ -181,12 +174,54 @@ class LocalAnswerer:
         with self._torch.no_grad():
             outputs = self._model.generate(
                 **inputs,
-                max_new_tokens=48,
+                max_new_tokens=max_new_tokens,
                 num_beams=4,
                 early_stopping=True,
             )
-        raw = self._tokenizer.decode(outputs[0], skip_special_tokens=True)
+        return self._tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+    def answer(self, question: str, contexts: list[str]) -> str:
+        """Answer *question* from memory snippets in LoCoMo gold style."""
+        trimmed = [c.strip() for c in contexts if c and c.strip()][:MAX_CONTEXTS]
+        trimmed = [c[:MAX_CONTEXT_CHARS] for c in trimmed]
+        if not trimmed:
+            return ""
+
+        prompt = _build_prompt(question, trimmed)
+        raw = self._generate(prompt, max_new_tokens=48)
         return hybrid_answer(question, trimmed, raw)
+
+    def answer_list(self, question: str, contexts: list[str]) -> str:
+        """Force comma-separated list answers for multi-hop inventory questions."""
+        trimmed = [c.strip() for c in contexts if c and c.strip()][:24]
+        trimmed = [c[:320] for c in trimmed]
+        if not trimmed:
+            return ""
+        context_block = "\n".join(f"- {c}" for c in trimmed)
+        prompt = (
+            "From the memories, list every item that answers the question.\n"
+            "Return ONLY a comma-separated list of short items (no sentences).\n"
+            "Include all matching items found across memories.\n"
+            'If none, reply "I don\'t know".\n\n'
+            f"Memories:\n{context_block}\n\n"
+            f"Question: {question}\n"
+            "Comma-separated list:"
+        )
+        raw = _clean_answer(self._generate(prompt, max_new_tokens=64))
+        if not raw or raw.lower() == "i don't know":
+            return hybrid_answer(question, trimmed, raw)
+        # Normalize separators.
+        raw = raw.replace(" and ", ", ").replace("/", ", ").replace(";", ", ")
+        parts = [p.strip(" .") for p in raw.split(",") if p.strip(" .")]
+        # Drop duplicates, keep order.
+        seen: set[str] = set()
+        uniq: list[str] = []
+        for part in parts:
+            key = part.lower()
+            if key not in seen:
+                seen.add(key)
+                uniq.append(part)
+        return ", ".join(uniq) if uniq else hybrid_answer(question, trimmed, raw)
 
 
 @lru_cache(maxsize=1)

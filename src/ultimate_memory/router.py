@@ -446,8 +446,12 @@ class MemoryRouter:
                 prefer_aggregated = True
 
         should_use_llm = use_llm if use_llm is not None else use_llm_from_env()
-        if prefer_aggregated:
-            # Aggregation beats flaky local LLM on list / inventory multi-hop.
+        should_list_answer = bool(agg_intent and agg_intent.kind in list_kinds)
+
+        if prefer_aggregated and aggregated and (
+            agg_intent is None or agg_intent.kind not in list_kinds or not should_use_llm
+        ):
+            # Short non-list aggregates (identity, duration, etc.) win immediately.
             answer_text = aggregated or ""
         elif should_use_llm:
             llm_pool = merge_contexts(rich_contexts, inventory_contexts)
@@ -467,16 +471,38 @@ class MemoryRouter:
                     -float(item.get("score") or 0.0),
                 ),
             )
-            ctx_limit = 22 if (agg_intent and agg_intent.kind == "hypothetical") else 14
-            context_texts = [str(item.get("text") or "")[:500] for item in ordered[:ctx_limit]]
+            # For list QA, bias toward the wide person-atom window.
+            if should_list_answer and person_atom_texts:
+                list_contexts = []
+                seen_l: set[str] = set()
+                for text in person_atom_texts + [
+                    str(item.get("text") or "") for item in ordered
+                ]:
+                    key = text.strip().lower()
+                    if key and key not in seen_l:
+                        seen_l.add(key)
+                        list_contexts.append(text.strip())
+                context_texts = list_contexts[:24]
+            else:
+                ctx_limit = 22 if (agg_intent and agg_intent.kind == "hypothetical") else 14
+                context_texts = [str(item.get("text") or "")[:500] for item in ordered[:ctx_limit]]
             try:
                 from .llm_answer import get_local_answerer
 
-                answer_text = get_local_answerer().answer(question, context_texts)
+                answerer = get_local_answerer()
+                if should_list_answer:
+                    answer_text = answerer.answer_list(question, context_texts)
+                    # Keep deterministic aggregate when it has more items.
+                    if aggregated and aggregated.count(",") > answer_text.count(","):
+                        answer_text = aggregated
+                else:
+                    answer_text = answerer.answer(question, context_texts)
             except Exception as exc:
                 logger.warning("Local LLM answer failed, falling back to extractive: %s", exc)
                 answer_text = aggregated or synthesize_answer(question, rich_contexts)
             if (not answer_text or answer_text.lower() == "i don't know") and aggregated:
+                answer_text = aggregated
+            elif prefer_aggregated and aggregated and not should_list_answer:
                 answer_text = aggregated
         else:
             answer_text = aggregated or synthesize_answer(question, rich_contexts)
