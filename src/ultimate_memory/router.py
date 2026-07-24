@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -38,7 +39,10 @@ from .hops import (
     extract_hop_entities,
     merge_contexts,
 )
+from .llm_answer import use_llm_from_env
 from .store import LocalStore
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryRouter:
@@ -120,8 +124,9 @@ class MemoryRouter:
         as_of: str | None = None,
         *,
         max_hop_searches: int = MAX_HOP_SEARCHES,
+        use_llm: bool | None = None,
     ) -> dict:
-        """Retrieve memory contexts and synthesize an extractive answer (no LLM)."""
+        """Retrieve memory contexts and synthesize an answer (extractive or optional local LLM)."""
         # Keyword-dense query helps FTS more than full natural-language questions.
         stop = {
             "when", "what", "where", "who", "whom", "which", "how", "why", "did", "does",
@@ -254,7 +259,22 @@ class MemoryRouter:
                 )
         rich_contexts = merge_contexts(rich_contexts, [])
 
-        answer_text = synthesize_answer(question, rich_contexts)
+        should_use_llm = use_llm if use_llm is not None else use_llm_from_env()
+        if should_use_llm:
+            context_texts = [
+                str(item.get("text") or "")[:400]
+                for item in rich_contexts[:6]
+                if item.get("text")
+            ]
+            try:
+                from .llm_answer import get_local_answerer
+
+                answer_text = get_local_answerer().answer(question, context_texts)
+            except Exception as exc:
+                logger.warning("Local LLM answer failed, falling back to extractive: %s", exc)
+                answer_text = synthesize_answer(question, rich_contexts)
+        else:
+            answer_text = synthesize_answer(question, rich_contexts)
         return {
             "question": question,
             "answer": answer_text,

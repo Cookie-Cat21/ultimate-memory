@@ -135,7 +135,7 @@ class ScoreBucket:
         }
 
 
-def run_synthetic(limit: int | None = None) -> dict[str, Any]:
+def run_synthetic(limit: int | None = None, *, use_llm: bool = False) -> dict[str, Any]:
     suite = json.loads((ROOT / "synthetic_memory_bench.json").read_text(encoding="utf-8"))
     cases = suite["cases"]
     if limit is not None:
@@ -154,7 +154,7 @@ def run_synthetic(limit: int | None = None) -> dict[str, Any]:
         router = MemoryRouter(make_settings(work))
         for write in case["writes"]:
             apply_write(router, write)
-        result = router.answer(case["question"], limit=8)
+        result = router.answer(case["question"], limit=8, use_llm=use_llm)
         answer = result["answer"]
         f1 = token_f1(answer, case["answers"])
         ok = check_constraints(answer, case) or f1 >= 0.5
@@ -233,6 +233,7 @@ def run_locomo(
     max_dialogs: int | None = None,
     max_questions: int | None = None,
     skip_adversarial: bool = True,
+    use_llm: bool = False,
 ) -> dict[str, Any]:
     path = DATA / "locomo10.json"
     if not path.exists():
@@ -354,7 +355,12 @@ def run_locomo(
             question = qa["question"]
             gold = qa["answer"]
             golds = gold if isinstance(gold, list) else [str(gold)]
-            result = router.answer(question, project_path=str(work / "project"), limit=10)
+            result = router.answer(
+                question,
+                project_path=str(work / "project"),
+                limit=10,
+                use_llm=use_llm,
+            )
             answer = result["answer"]
             f1 = token_f1(answer, golds)
             contexts = result.get("contexts_used") or []
@@ -405,6 +411,7 @@ def main() -> None:
     parser.add_argument("--max-dialogs", type=int, default=None)
     parser.add_argument("--max-questions", type=int, default=None)
     parser.add_argument("--quick", action="store_true", help="1 dialog / 40 questions + full synthetic")
+    parser.add_argument("--llm", action="store_true", help="Use local HuggingFace answerer after retrieval")
     args = parser.parse_args()
 
     RESULTS.mkdir(parents=True, exist_ok=True)
@@ -412,7 +419,7 @@ def main() -> None:
 
     if args.suite in {"synthetic", "all"}:
         print("=== SYNTHETIC ===", flush=True)
-        syn = run_synthetic()
+        syn = run_synthetic(use_llm=args.llm)
         reports["synthetic"] = syn
         (RESULTS / "synthetic.json").write_text(json.dumps(syn, indent=2), encoding="utf-8")
         print(json.dumps(syn["overall"], indent=2), flush=True)
@@ -429,7 +436,7 @@ def main() -> None:
         if args.quick:
             max_dialogs = 1 if max_dialogs is None else max_dialogs
             max_questions = 40 if max_questions is None else max_questions
-        loco = run_locomo(max_dialogs=max_dialogs, max_questions=max_questions)
+        loco = run_locomo(max_dialogs=max_dialogs, max_questions=max_questions, use_llm=args.llm)
         reports["locomo"] = loco
         (RESULTS / "locomo.json").write_text(json.dumps(loco, indent=2), encoding="utf-8")
         print(json.dumps({k: loco[k] for k in ("overall", "evidence_recall", "by_category", "vs_a_mem_f1")}, indent=2), flush=True)
