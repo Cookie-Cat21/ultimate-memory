@@ -60,18 +60,32 @@ def _build_prompt(question: str, contexts: list[str]) -> str:
 
 def _prefer_absolute_date(llm_answer: str, contexts: list[str], question: str) -> str:
     """If the LLM returns a relative date, prefer an absolute date span from contexts."""
-    if not _RELATIVE.match(llm_answer.strip()):
-        # Also upgrade if extractive found a clearer absolute date for when-questions.
-        if not re.search(r"\bwhen\b|\bwhat\s+(?:year|date|month|day)\b", question, re.I):
-            return llm_answer
+    from .answer import _is_relative_only_date, _prefer_absolute_date_spans
+
+    if not (
+        _RELATIVE.match(llm_answer.strip())
+        or _is_relative_only_date(llm_answer.strip())
+        or re.search(r"\bwhen\b|\bhow long\b|\bwhat\s+(?:year|date|month|day)\b", question, re.I)
+    ):
+        return llm_answer
     extractive = synthesize_answer(
         question,
         [{"text": c, "memory_type": "fact", "provenance": {"source": "atomic-memory"}, "score": 1.0} for c in contexts],
     )
-    dates = _extract_date_spans(extractive) or _extract_date_spans(" ".join(contexts))
+    if extractive and not _is_relative_only_date(extractive):
+        # Prefer extractive temporal spans (incl. "4 years", "week before ...").
+        if re.search(
+            r"\b(?:19|20)\d{2}\b|\b\d+\s+years?\b|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b",
+            extractive,
+            re.I,
+        ):
+            return extractive
+    dates = _prefer_absolute_date_spans(
+        _extract_date_spans(extractive) or _extract_date_spans(" ".join(contexts))
+    )
     if dates:
-        # Prefer day-month-year over bare year when available.
-        dates = sorted(dates, key=lambda d: (len(d), d), reverse=True)
+        # Prefer day-month-year / anchored phrases over bare year when available.
+        dates = sorted(dates, key=lambda d: (not _is_relative_only_date(d), len(d)), reverse=True)
         return dates[0]
     return llm_answer
 

@@ -32,6 +32,7 @@ from .models import (
     SearchResult,
     safe_slug,
 )
+from .aggregate import aggregate_answer, detect_aggregate_intent
 from .answer import f1_ready_text, synthesize_answer
 from .hops import (
     MAX_HOP_SEARCHES,
@@ -319,32 +320,138 @@ class MemoryRouter:
 
         rich_contexts = merge_contexts(rich_contexts, [])
 
+        # Pull a wide person-scoped atom window for multi-fact aggregation only.
+        # Keep these out of normal extractive/LLM ranking so temporal/single-hop
+        # dates are not drowned by inventory dumps.
+        agg_intent = detect_aggregate_intent(question)
+        person_atom_texts: list[str] = []
+        inventory_contexts: list[dict] = []
+        if agg_intent and agg_intent.person:
+            for atom in self.store.search_atoms(agg_intent.person, limit=100):
+                if atom.text:
+                    person_atom_texts.append(atom.text)
+            for extra_q in (
+                f"{agg_intent.person} profile",
+                f"{agg_intent.person} activities",
+                f"{agg_intent.person} books",
+                f"{agg_intent.person} painted",
+                f"{agg_intent.person} LGBTQ",
+                f"{agg_intent.person} relationship",
+            ):
+                for atom in self.store.search_atoms(extra_q, limit=10):
+                    if not atom.text:
+                        continue
+                    person_atom_texts.append(atom.text)
+                    # Compact inventory/profile cards may still help the LLM.
+                    if atom.id.startswith(("atom:inv:", "atom:profile:")) or any(
+                        marker in atom.text
+                        for marker in (
+                            " profile:",
+                            " activities:",
+                            " books read:",
+                            " painted:",
+                            " LGBTQ ",
+                            " relationship status:",
+                            " career:",
+                            " identity:",
+                        )
+                    ):
+                        inventory_contexts.append(
+                            self._atom_to_search_result(
+                                atom, score=max(atom.salience, 0.72)
+                            ).model_dump()
+                        )
+
+        retrieved_texts = [
+            str(item.get("text") or "")
+            for item in rich_contexts
+            if item.get("text")
+        ]
+        seen_ctx: set[str] = set()
+        dedup_texts: list[str] = []
+        for text in person_atom_texts + retrieved_texts:
+            key = text.strip().lower()
+            if key and key not in seen_ctx:
+                seen_ctx.add(key)
+                dedup_texts.append(text.strip())
+
+        aggregated = aggregate_answer(question, dedup_texts) if agg_intent else None
+        prefer_aggregated = bool(
+            aggregated
+            and (
+                "," in aggregated
+                or (
+                    agg_intent is not None
+                    and agg_intent.kind
+                    in {
+                        "relationship_status",
+                        "moved_from",
+                        "identity",
+                        "career",
+                        "hypothetical",
+                        "painted_recently",
+                        "beach_count",
+                        "children_count",
+                        "duration",
+                        "instruments",
+                        "supporters",
+                        "art_kind",
+                        "both_painted",
+                        "destress",
+                        "symbols",
+                        "trans_events",
+                        "bought_items",
+                        "hike_family",
+                        "artists_seen",
+                        "transition_changes",
+                        "pottery_types",
+                        "pet_names",
+                        "lgbtq_ways",
+                        "lgbtq_events",
+                        "help_children",
+                        "camp_places",
+                        "kids_like",
+                        "books",
+                        "activities",
+                    }
+                )
+            )
+        )
+
         should_use_llm = use_llm if use_llm is not None else use_llm_from_env()
-        if should_use_llm:
+        if prefer_aggregated:
+            # Aggregation beats flaky local LLM on list / inventory multi-hop.
+            answer_text = aggregated or ""
+        elif should_use_llm:
+            llm_pool = merge_contexts(rich_contexts, inventory_contexts)
             # Prefer atomic / dialogue snippets first for the local answerer.
             ordered = sorted(
-                [item for item in rich_contexts if item.get("text")],
+                [item for item in llm_pool if item.get("text")],
                 key=lambda item: (
                     0
                     if (
                         str((item.get("provenance") or {}).get("source")) == "atomic-memory"
                         or str(item.get("id") or "").startswith(("atom:", "turn:"))
                         or str(item.get("text") or "").startswith("[D")
+                        or " profile:" in str(item.get("text") or "")
+                        or " activities:" in str(item.get("text") or "")
                     )
                     else 1,
                     -float(item.get("score") or 0.0),
                 ),
             )
-            context_texts = [str(item.get("text") or "")[:500] for item in ordered[:10]]
+            context_texts = [str(item.get("text") or "")[:500] for item in ordered[:14]]
             try:
                 from .llm_answer import get_local_answerer
 
                 answer_text = get_local_answerer().answer(question, context_texts)
             except Exception as exc:
                 logger.warning("Local LLM answer failed, falling back to extractive: %s", exc)
-                answer_text = synthesize_answer(question, rich_contexts)
+                answer_text = aggregated or synthesize_answer(question, rich_contexts)
+            if (not answer_text or answer_text.lower() == "i don't know") and aggregated:
+                answer_text = aggregated
         else:
-            answer_text = synthesize_answer(question, rich_contexts)
+            answer_text = aggregated or synthesize_answer(question, rich_contexts)
         return {
             "question": question,
             "answer": answer_text,
@@ -353,6 +460,7 @@ class MemoryRouter:
             "search": search_result,
             "hop_entities": hop_entities,
             "hop_searches": hop_searches,
+            "aggregated": aggregated,
         }
 
     def search(

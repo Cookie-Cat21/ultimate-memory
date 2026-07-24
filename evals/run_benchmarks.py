@@ -338,7 +338,10 @@ def run_locomo(
                 )
                 router._ingest_atom(atom)
 
-        # Build compact per-speaker profile cards (helps multi-hop / identity QA).
+        # Build compact per-speaker profile cards + facet inventories
+        # (helps multi-hop list QA: activities, places, books, LGBTQ ways, ...).
+        from ultimate_memory.aggregate import build_speaker_inventories
+
         profile_bits: dict[str, list[str]] = {}
         for _okey, speakers in observations.items():
             if not isinstance(speakers, dict):
@@ -357,11 +360,11 @@ def run_locomo(
                 if key not in seen_bits:
                     seen_bits.add(key)
                     unique_bits.append(bit)
-            card = f"{speaker} profile: " + " | ".join(unique_bits[:12])
+            card = f"{speaker} profile: " + " | ".join(unique_bits[:40])
             router._ingest_atom(
                 AtomicMemory(
                     id=f"atom:profile:{safe_slug(sample_id)}:{safe_slug(speaker)}:{content_hash(card)[:8]}",
-                    text=card[:1200],
+                    text=card[:2200],
                     memory_type=MemoryType.FACT,
                     project_path=str(work / "project"),
                     entities=[speaker],
@@ -370,6 +373,22 @@ def run_locomo(
                     importance=0.9,
                 )
             )
+            for inv in build_speaker_inventories(speaker, unique_bits):
+                router._ingest_atom(
+                    AtomicMemory(
+                        id=(
+                            f"atom:inv:{safe_slug(sample_id)}:{safe_slug(speaker)}:"
+                            f"{content_hash(inv)[:8]}"
+                        ),
+                        text=inv[:500],
+                        memory_type=MemoryType.FACT,
+                        project_path=str(work / "project"),
+                        entities=[speaker],
+                        source_refs=[f"inventory:{sample_id}:{speaker}"],
+                        created_at=now_iso(),
+                        importance=0.95,
+                    )
+                )
 
         event_summary = sample.get("event_summary") or {}
         for ekey, speakers in event_summary.items():

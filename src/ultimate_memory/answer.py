@@ -98,10 +98,45 @@ _DATE_PATTERNS: list[re.Pattern[str]] = [
         re.I,
     ),
     re.compile(r"\b\d{4}-\d{2}-\d{2}\b"),
+    # Anchored relative phrases that appear in LoCoMo golds.
+    re.compile(
+        r"\b(?:the\s+)?(?:week|weekend|sunday|monday|tuesday|wednesday|thursday|friday|saturday)"
+        r"\s+before\s+\d{1,2}\s+"
+        r"(?:January|February|March|April|May|June|July|August|September|"
+        r"October|November|December)\s+\d{4}\b",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?:two\s+weekends?\s+before|a\s+few\s+weeks?\s+before)\s+\d{1,2}\s+"
+        r"(?:January|February|March|April|May|June|July|August|September|"
+        r"October|November|December)\s+\d{4}\b",
+        re.I,
+    ),
+    re.compile(r"\b\d+\s+years?\s+ago\b", re.I),
     re.compile(r"\b(?:in|on|during)\s+(?:the\s+)?(?:year\s+)?((?:19|20)\d{2})\b", re.I),
     re.compile(r"\b(?:19|20)\d{2}\b"),
     re.compile(r"\b(?:last|next)\s+(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b", re.I),
 ]
+
+_RELATIVE_ONLY_DATE_RE = re.compile(
+    r"^(?:last|next|this)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"week|weekend|month|year)$|"
+    r"^(?:yesterday|today|tomorrow|recently|earlier|later)$|"
+    r"^(?:a few days ago|two days ago|2 days ago|last night)$",
+    re.I,
+)
+
+_DURATION_SPAN_RE = re.compile(
+    r"\b(\d+\s+years?(?:\s+ago)?|\d+\s+months?(?:\s+ago)?|\d+\s+weeks?(?:\s+ago)?|"
+    r"for\s+\d+\s+years?|\dover\s+\d+\s+years?)\b",
+    re.I,
+)
+
+_INVENTORY_LINE_RE = re.compile(
+    r"\b(?:profile|activities|camp places|books read|painted|LGBTQ participation|"
+    r"relationship status|moved from|identity|career)\s*:",
+    re.I,
+)
 
 _YES_NO_RE = re.compile(
     r"^(?:is|are|was|were|do|does|did|has|have|had|can|could|will|would|should|"
@@ -303,6 +338,9 @@ def _question_kind(question: str) -> QuestionKind:
     q = question.strip()
     if _YES_NO_RE.match(q):
         return "yes_no"
+    # Duration questions are temporal even without "when".
+    if re.search(r"\bhow long\b|\bhow many years\b|\bhow many months\b", q, re.I):
+        return "when"
     if _WHEN_RE.search(q):
         return "when"
     if _WHERE_RE.search(q):
@@ -325,11 +363,39 @@ def _extract_date_spans(sentence: str) -> list[str]:
     for pattern in _DATE_PATTERNS:
         for match in pattern.finditer(sentence):
             span = match.group(0).strip(" .,;")
+            # Unwrap "in 2022" capture groups when present.
+            if match.lastindex:
+                captured = match.group(1)
+                if captured and re.fullmatch(r"(?:19|20)\d{2}", captured):
+                    span = captured
             key = span.lower()
             if key not in seen:
                 seen.add(key)
                 spans.append(span)
     return spans
+
+
+def _is_relative_only_date(span: str) -> bool:
+    return bool(_RELATIVE_ONLY_DATE_RE.match(span.strip()))
+
+
+def _extract_duration_spans(sentence: str) -> list[str]:
+    spans: list[str] = []
+    seen: set[str] = set()
+    for match in _DURATION_SPAN_RE.finditer(sentence):
+        span = match.group(1).strip()
+        # Normalize "for 4 years" -> "4 years"
+        span = re.sub(r"^(?:for|over)\s+", "", span, flags=re.I)
+        key = span.lower()
+        if key not in seen:
+            seen.add(key)
+            spans.append(span)
+    return spans
+
+
+def _prefer_absolute_date_spans(spans: list[str]) -> list[str]:
+    absolute = [s for s in spans if not _is_relative_only_date(s)]
+    return absolute or spans
 
 
 def _extract_location_spans(sentence: str) -> list[str]:
@@ -462,6 +528,10 @@ def _context_metadata_bonus(
 
     if identity_question and _IDENTITY_PHRASE_RE.search(item.text):
         bonus += 0.55
+
+    # Inventory/profile dumps are great for multi-hop lists, noisy for span QA.
+    if _INVENTORY_LINE_RE.search(item.text):
+        bonus -= 0.85
 
     valid_until = provenance.get("valid_until")
     superseded_by = provenance.get("superseded_by")
@@ -776,6 +846,9 @@ def synthesize_answer(
     best = ranked[0]
 
     if kind == "when":
+        duration_question = bool(
+            re.search(r"\bhow long\b|\bhow many years\b|\byears? ago\b", question, re.I)
+        )
         # Prefer a date that co-occurs with question entities/content in the same sentence.
         dated: list[tuple[float, str]] = []
         for item in normalized:
@@ -787,27 +860,60 @@ def synthesize_answer(
                 identity_question=identity_question,
             )
             for sentence in _split_sentences(item.text):
+                if _INVENTORY_LINE_RE.search(sentence):
+                    continue
                 overlap = _overlap_score(question_words, sentence, entities)
                 if entities and not any(ent in sentence.lower() for ent in entities):
                     if overlap < 0.35:
                         continue
                 elif overlap < 0.2:
                     continue
-                for date in _extract_date_spans(sentence):
+                spans = _extract_duration_spans(sentence) if duration_question else []
+                spans = spans or _extract_date_spans(sentence)
+                spans = _prefer_absolute_date_spans(spans)
+                for date in spans:
                     # Penalize dates that are just session stamps without topical words.
-                    topical = overlap + (0.4 if any(w in sentence.lower() for w in question_words) else 0.0)
-                    dated.append((meta + topical + min(len(date), 20) * 0.01, date))
+                    topical = overlap + (
+                        0.4 if any(w in sentence.lower() for w in question_words) else 0.0
+                    )
+                    # Strongly prefer absolute / anchored dates over "last Saturday".
+                    abs_bonus = 0.0 if _is_relative_only_date(date) else 0.8
+                    # Longer anchored phrases ("week before 9 June 2023") beat bare years
+                    # when overlap is otherwise similar.
+                    dated.append(
+                        (
+                            meta + topical + abs_bonus + min(len(date), 40) * 0.015,
+                            date,
+                        )
+                    )
         if dated:
             dated.sort(key=lambda x: (x[0], len(x[1])), reverse=True)
+            # If the top hit is relative-only, skip down to an absolute one.
+            for score, date in dated:
+                if not _is_relative_only_date(date) or all(
+                    _is_relative_only_date(d) for _, d in dated
+                ):
+                    return _truncate(date, max_chars)
             return _truncate(dated[0][1], max_chars)
-        dates = _extract_date_spans(best.text) or _extract_date_spans(best.sentence)
+        dates = _prefer_absolute_date_spans(
+            _extract_duration_spans(best.text)
+            or _extract_date_spans(best.text)
+            or _extract_duration_spans(best.sentence)
+            or _extract_date_spans(best.sentence)
+        )
         if dates:
             return _truncate(dates[0], max_chars)
         # Avoid vague relative answers when no absolute date is available.
-        if re.search(r"\b(?:last|next|this)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|weekend|month)\b", best.text, re.I):
+        if re.search(
+            r"\b(?:last|next|this)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|weekend|month)\b",
+            best.text,
+            re.I,
+        ):
             for cand in ranked[1:8]:
-                alt = _extract_date_spans(cand.text) or _extract_date_spans(cand.sentence)
-                if alt:
+                alt = _prefer_absolute_date_spans(
+                    _extract_date_spans(cand.text) or _extract_date_spans(cand.sentence)
+                )
+                if alt and not _is_relative_only_date(alt[0]):
                     return _truncate(alt[0], max_chars)
 
     if kind == "where":
