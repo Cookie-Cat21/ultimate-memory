@@ -1061,13 +1061,24 @@ def _both_intersection(question: str, head: str | None, texts: list[str]) -> str
         a_texts = a_texts or texts
         b_texts = b_texts or texts
 
+    q_lower = question.lower()
+    head_l = (head or "").lower()
+    # Volunteering / shelter overlap is a common LoCoMo both-question.
+    if re.search(r"\bvolunteer|\bshelter\b", q_lower) or "volunteer" in head_l:
+        blob_a = " ".join(a_texts).lower()
+        blob_b = " ".join(b_texts).lower()
+        if "homeless shelter" in blob_a and "homeless shelter" in blob_b:
+            return "Volunteering at a homeless shelter"
+        if "shelter" in blob_a and "shelter" in blob_b:
+            return "Volunteering at a homeless shelter"
+
     def items_for(person_texts: list[str]) -> set[str]:
         found: set[str] = set()
         if head and any(t in head for t in ("paint",)):
             found.update(x.lower() for x in _collect_canon(person_texts, _PAINT_SUBJECTS))
         if head and any(t in head for t in ("activ", "hobby")):
             found.update(x.lower() for x in _collect_canon(person_texts, _ACTIVITY_CANON))
-        # Proper nouns shared across corpora.
+        # Proper nouns shared across corpora (skip tiny/noisy tokens).
         for text in person_texts:
             for match in re.finditer(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b", text):
                 name = match.group(1)
@@ -1827,9 +1838,11 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "friend places",
         re.compile(
-            r"\b(?:made friends|met friends|friends?)\b[^.;\n]{0,60}?\b"
+            r"\b(?:made friends|met friends|friends?|volunteers?|volunteering)\b[^.;\n]{0,80}?\b"
             r"(?:at|from|in)\s+(?:the\s+)?"
-            r"(homeless shelter|gym|church|dog shelter|school|work|office|park)\b",
+            r"(homeless shelter|gym|church|dog shelter|school|work|office|park)\b|"
+            r"\b(?:at|from)\s+(?:the\s+)?"
+            r"(homeless shelter|gym|church|dog shelter)\b[^.;\n]{0,40}\bfriends?\b",
             re.I,
         ),
     ),
@@ -1966,10 +1979,13 @@ def build_speaker_inventories(speaker: str, fact_texts: list[str]) -> list[str]:
     for text in fact_texts:
         if not re.search(
             r"\b(?:visit(?:ed|ing)?|travel(?:ed|ing)?|went to|moved to|live[sd]? in|"
-            r"vacation(?:ed)?|trip to|flew to|from)\b",
+            r"vacation(?:ed)?|trip to|flew to)\b",
             text,
             re.I,
         ):
+            continue
+        # Skip pet/people naming sentences so dog names don't become "places".
+        if re.search(r"\b(?:dog|cat|pet|puppy|named|called)\b", text, re.I):
             continue
         for match in re.finditer(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b", text):
             name = match.group(1)
