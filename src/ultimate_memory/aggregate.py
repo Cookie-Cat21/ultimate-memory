@@ -437,11 +437,11 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
     if re.search(r"\bhow many children\b|\bhow many kids\b", q_lower):
         return AggregateIntent("children_count", person)
     # Safe generic counts: literal "how many", but not temporal durations
-    # ("how many weeks/months/years passed/ago").
+    # ("how many weeks/months/years passed/ago/lapsed/between").
     if re.search(r"\bhow many\b", q_lower) and not re.search(
-        r"\bhow many (?:years|months|weeks|days) (?:ago|passed|have passed|had passed)\b|"
+        r"\bhow many (?:years|months|weeks|days)\b.+\b(?:ago|passed|lapsed|between)\b|"
         r"\bafter how many (?:years|months|weeks|days)\b|"
-        r"\bhow many (?:years|months|weeks|days) (?:passed|have|had)\b",
+        r"\bhow many (?:years|months|weeks|days) (?:did|does|do|will|would).+\b(?:spend|last|take)\b",
         q_lower,
     ):
         return AggregateIntent("how_many", person, topic=_head_noun(q) or q_lower)
