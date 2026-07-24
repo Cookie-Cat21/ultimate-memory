@@ -117,6 +117,8 @@ class MemoryRouter:
         project_path: str | None = None,
         limit: int = 8,
         as_of: str | None = None,
+        *,
+        max_hop_searches: int = MAX_HOP_SEARCHES,
     ) -> dict:
         """Retrieve memory contexts and synthesize an extractive answer (no LLM)."""
         search_result = self.search(
@@ -128,6 +130,34 @@ class MemoryRouter:
         rich_contexts = [
             item for item in search_result["results"] if item.get("text")
         ]
+
+        hop_entities = extract_hop_entities(question, search_result["results"])
+        hop_queries = build_hop_queries(
+            question,
+            hop_entities,
+            max_queries=min(2, max_hop_searches),
+        )
+        hop_searches: list[dict] = []
+        hop_contexts: list[dict] = []
+        for hop_query in hop_queries[:max_hop_searches]:
+            hop_result = self.search(
+                query=hop_query,
+                project_path=project_path,
+                limit=limit,
+                as_of=as_of,
+            )
+            hop_searches.append({"query": hop_query, "search": hop_result})
+            for item in hop_result["results"]:
+                if not item.get("text"):
+                    continue
+                boosted = dict(item)
+                provenance = dict(boosted.get("provenance") or {})
+                provenance["hop"] = True
+                boosted["provenance"] = provenance
+                boosted["score"] = float(boosted.get("score") or 0.0) + 0.35
+                hop_contexts.append(boosted)
+
+        rich_contexts = merge_contexts(rich_contexts, hop_contexts)
         answer_text = synthesize_answer(question, rich_contexts)
         return {
             "question": question,
@@ -135,6 +165,8 @@ class MemoryRouter:
             "f1_text": f1_ready_text(answer_text),
             "contexts_used": [item["text"] for item in rich_contexts],
             "search": search_result,
+            "hop_entities": hop_entities,
+            "hop_searches": hop_searches,
         }
 
     def search(
@@ -745,6 +777,13 @@ class MemoryRouter:
             for item in extra:
                 if item.id not in seen:
                     candidates.append(item)
+                    seen.add(item.id)
+
+        # Score highest-risk pairs first so clear replacements win even with many actives.
+        candidates.sort(
+            key=lambda c: contradiction_score(atom.text, c.text),
+            reverse=True,
+        )
 
         for candidate in candidates:
             score = contradiction_score(atom.text, candidate.text)

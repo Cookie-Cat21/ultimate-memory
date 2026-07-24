@@ -430,6 +430,8 @@ class LocalStore:
         limit: int = 12,
     ) -> list[AtomicMemory]:
         """Return active same-type atoms that may contradict *atom*."""
+        from .atoms import contradiction_lookup_hints
+
         # Prefer same project, then global actives of that type.
         same_project = self.list_active_atoms(
             memory_types=[atom.memory_type.value],
@@ -440,13 +442,28 @@ class LocalStore:
             return [a for a in same_project if a.id != atom.id]
         extras = self.list_active_atoms(memory_types=[atom.memory_type.value], limit=limit * 2)
         seen = {a.id for a in same_project}
-        merged = [a for a in same_project if a.id != atom.id]
+        merged: list[AtomicMemory] = [a for a in same_project if a.id != atom.id]
         for candidate in extras:
             if candidate.id == atom.id or candidate.id in seen:
                 continue
             merged.append(candidate)
+            seen.add(candidate.id)
             if len(merged) >= limit:
-                break
+                return merged
+
+        # Subject/topic hints (e.g. Carol, Gabe, editor) surface related prior facts.
+        for hint in contradiction_lookup_hints(atom.text, entities=atom.entities):
+            for found in self.search_atoms(
+                hint,
+                limit=6,
+                memory_types=[atom.memory_type.value],
+            ):
+                if found.id == atom.id or found.id in seen:
+                    continue
+                merged.append(found)
+                seen.add(found.id)
+                if len(merged) >= limit:
+                    return merged
         return merged
 
     def invalidate_atom(

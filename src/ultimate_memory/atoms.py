@@ -234,7 +234,8 @@ _JOB_CUES = (
     "i am a",
     "im a",
 )
-_ROLE_NOUNS = frozenset(
+# Cue verbs to skip when extracting role *values* (city, job title, etc.).
+_ROLE_CUE_WORDS = frozenset(
     {
         "lives",
         "live",
@@ -249,31 +250,26 @@ _ROLE_NOUNS = frozenset(
         "working",
         "employed",
         "job",
-        "teacher",
-        "nurse",
-        "doctor",
-        "engineer",
-        "developer",
-        "manager",
-        "designer",
-        "lawyer",
-        "student",
-        "chef",
-        "writer",
-        "artist",
-        "driver",
-        "accountant",
-        "consultant",
-        "analyst",
-        "scientist",
-        "researcher",
+        "staying",
     }
+)
+
+# Stop value extraction at supersession tails or secondary prepositional phrases.
+_ROLE_VALUE_BOUNDARY = re.compile(
+    r"\b(?:instead of|rather than|as opposed to|no longer|not|but|from|near|last)\b|;|,|\s+at\s+",
+    re.IGNORECASE,
 )
 
 
 def _has_role_cue(text: str, cues: tuple[str, ...]) -> bool:
     lower = text.lower()
     return any(cue in lower for cue in cues)
+
+
+def _role_value_fragment(tail: str) -> str:
+    """Keep only the primary role value before supersession or 'at …' tails."""
+    parts = _ROLE_VALUE_BOUNDARY.split(tail.strip(), maxsplit=1)
+    return parts[0].strip()
 
 
 def _role_value_tokens(text: str, cues: tuple[str, ...]) -> set[str]:
@@ -286,11 +282,44 @@ def _role_value_tokens(text: str, cues: tuple[str, ...]) -> set[str]:
             continue
         tail = text[idx + len(cue) :]
         tail = re.sub(r"^(?:a|an|the)\s+", "", tail.strip(), flags=re.IGNORECASE)
-        for match in _TOKEN_RE.finditer(tail):
+        fragment = _role_value_fragment(tail)
+        count = 0
+        for match in _TOKEN_RE.finditer(fragment):
             token = match.group(0).lower().strip("._/-+")
-            if token and token not in _STOPWORDS and token not in _ROLE_NOUNS and len(token) > 2:
+            if token and token not in _STOPWORDS and token not in _ROLE_CUE_WORDS and len(token) > 2:
                 values.add(token)
+                count += 1
+                if count >= 4:
+                    break
     return values
+
+
+def _same_subject(new_text: str, old_text: str) -> bool:
+    """True when both texts appear to describe the same person."""
+    if re.match(r"^I\b", new_text.strip()) and re.match(r"^I\b", old_text.strip()):
+        return True
+    new_match = re.match(r"^([A-Z][a-z]+)\b", new_text.strip())
+    old_match = re.match(r"^([A-Z][a-z]+)\b", old_text.strip())
+    if new_match and old_match:
+        return new_match.group(1) == old_match.group(1)
+    return False
+
+
+def contradiction_lookup_hints(text: str, *, entities: list[str] | None = None) -> list[str]:
+    """Search hints for finding prior atoms that may contradict *text*."""
+    hints: list[str] = []
+    if entities:
+        hints.extend(e for e in entities if e)
+    subject = re.match(r"^([A-Z][a-z]+)\b", text.strip())
+    if subject and subject.group(1) not in {"We", "The", "This", "That"}:
+        hints.append(subject.group(1))
+    if re.match(r"^I\b", text.strip()):
+        hints.append("I")
+    lower = text.lower()
+    for topic in ("editor", "theme", "mode", "caching", "cache"):
+        if topic in lower:
+            hints.append(topic)
+    return list(dict.fromkeys(hints))
 
 
 def role_conflict_boost(new_text: str, old_text: str) -> float:
@@ -298,20 +327,21 @@ def role_conflict_boost(new_text: str, old_text: str) -> float:
     boost = 0.0
     new_lower = new_text.lower()
     old_lower = old_text.lower()
+    explicit_replace = has_supersession_cue(new_text)
 
     if _has_role_cue(new_text, _LOCATION_CUES) and _has_role_cue(old_text, _LOCATION_CUES):
         new_vals = _role_value_tokens(new_text, _LOCATION_CUES)
         old_vals = _role_value_tokens(old_text, _LOCATION_CUES)
-        shared_vals = new_vals & old_vals
         if new_vals and old_vals:
-            if shared_vals:
+            if new_vals == old_vals:
                 boost -= 0.15
             elif jaccard(new_vals, old_vals) < 0.45:
                 boost += 0.38
-            elif jaccard(new_vals, old_vals) >= 0.55:
+            elif jaccard(new_vals, old_vals) >= 0.55 and not explicit_replace:
                 boost -= 0.12
-        if "moved to" in new_lower and "lives in" in old_lower and not shared_vals:
-            boost += 0.22
+        if "moved to" in new_lower and ("lives in" in old_lower or "live in" in old_lower):
+            if new_vals and old_vals and new_vals != old_vals:
+                boost += 0.28
         if "moved to" in new_lower and "moved to" in old_lower and new_vals != old_vals:
             boost += 0.18
 
@@ -320,12 +350,16 @@ def role_conflict_boost(new_text: str, old_text: str) -> float:
         old_vals = _role_value_tokens(old_text, _JOB_CUES)
         if new_vals and old_vals and jaccard(new_vals, old_vals) < 0.45:
             boost += 0.36
-        shared_roles = (tokenize(new_text) & tokenize(old_text)) & _ROLE_NOUNS
+        elif new_vals and old_vals and new_vals != old_vals and explicit_replace:
+            boost += 0.28
+        shared_roles = (tokenize(new_text) & tokenize(old_text)) & _ROLE_CUE_WORDS
         if shared_roles and new_vals and old_vals and jaccard(new_vals, old_vals) < 0.5:
             boost += 0.12
 
-    if has_supersession_cue(new_text) and boost > 0:
+    if explicit_replace and boost > 0:
         boost += 0.08
+    if _same_subject(new_text, old_text) and boost > 0:
+        boost += 0.06
 
     return max(boost, 0.0)
 
@@ -341,12 +375,16 @@ def contradiction_score(new_text: str, old_text: str) -> float:
     old_tokens = tokenize(old_text)
     overlap = jaccard(new_tokens, old_tokens)
     role_boost = role_conflict_boost(new_text, old_text)
-    if overlap < 0.28 and role_boost < 0.35:
+    same_subject = _same_subject(new_text, old_text)
+    min_role = 0.30 if same_subject and has_supersession_cue(new_text) else 0.35
+    if overlap < 0.28 and role_boost < min_role:
         return 0.0
 
     score = overlap if overlap >= 0.28 else 0.0
     if has_supersession_cue(new_text):
         score += 0.18
+    if same_subject and has_supersession_cue(new_text):
+        score += 0.08
     if content_hash(new_text) == content_hash(old_text):
         return 1.0
 
@@ -359,7 +397,7 @@ def contradiction_score(new_text: str, old_text: str) -> float:
         score += 0.22
 
     if overlap < 0.28:
-        if role_boost < 0.35:
+        if role_boost < min_role:
             return 0.0
         score = max(score, role_boost)
     else:
