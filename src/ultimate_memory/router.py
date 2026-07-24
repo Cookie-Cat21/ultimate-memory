@@ -438,10 +438,35 @@ class MemoryRouter:
         prefer_aggregated = False
         if aggregated and agg_intent is not None:
             kind = agg_intent.kind
-            if kind in list_kinds:
-                prefer_aggregated = "," in aggregated or " and " in aggregated.lower()
-            elif kind in short_kinds:
+            # High-precision specialized collectors always win when they fire.
+            always = short_kinds | {
+                "instruments",
+                "both_painted",
+                "both_intersection",
+                "artists_seen",
+                "pet_names",
+                "books",
+                "activities",
+                "camp_places",
+                "kids_like",
+                "pottery_types",
+                "lgbtq_ways",
+                "lgbtq_events",
+                "help_children",
+                "supporters",
+                "symbols",
+                "trans_events",
+                "bought_items",
+                "hike_family",
+                "transition_changes",
+                "destress",
+                "painted_subjects",
+                "painted_recently",
+            }
+            if kind in always:
                 prefer_aggregated = True
+            elif kind in list_kinds:
+                prefer_aggregated = "," in aggregated or " and " in aggregated.lower()
             elif "," in aggregated:
                 prefer_aggregated = True
 
