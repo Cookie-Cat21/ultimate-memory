@@ -12,8 +12,8 @@ from .answer import _extract_date_spans, synthesize_answer
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "google/flan-t5-base"
-MAX_CONTEXTS = 10
-MAX_CONTEXT_CHARS = 500
+MAX_CONTEXTS = 18
+MAX_CONTEXT_CHARS = 420
 
 _UNANSWERABLE = re.compile(
     r"^(?:i\s+don'?t\s+know|unknown|n/?a|none|not\s+(?:mentioned|stated|found))\.?$",

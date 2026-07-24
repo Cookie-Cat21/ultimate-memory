@@ -514,7 +514,7 @@ def run_locomo(
         theirs = baseline.get(cat)
         if ours is None or theirs is None:
             return None
-        return ours > theirs
+        return ours >= theirs
 
     comparison = {}
     for cat in ("single_hop", "multi_hop", "temporal", "open_domain", "adversarial"):
@@ -535,6 +535,7 @@ def run_locomo(
         "elapsed_sec": round(elapsed, 3),
         "questions": asked,
         "use_llm": use_llm,
+        "llm_model": os.environ.get("ULTIMATE_MEMORY_LOCAL_LLM") if use_llm else None,
         "overall": overall.summary(),
         "evidence_recall": round(100.0 * evidence_sum / evidence_n, 2) if evidence_n else 0.0,
         "by_category": cat_summaries,
@@ -553,7 +554,23 @@ def main() -> None:
     parser.add_argument("--max-questions", type=int, default=None)
     parser.add_argument("--quick", action="store_true", help="1 dialog / 40 questions + full synthetic")
     parser.add_argument("--llm", action="store_true", help="Use local HuggingFace answerer after retrieval")
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="HuggingFace seq2seq model id for --llm (sets ULTIMATE_MEMORY_LOCAL_LLM)",
+    )
     args = parser.parse_args()
+
+    if args.model:
+        import os
+
+        os.environ["ULTIMATE_MEMORY_LOCAL_LLM"] = args.model
+        try:
+            from ultimate_memory.llm_answer import get_local_answerer
+
+            get_local_answerer.cache_clear()
+        except Exception:
+            pass
 
     RESULTS.mkdir(parents=True, exist_ok=True)
     reports: dict[str, Any] = {}

@@ -868,19 +868,7 @@ def _how_many(person: str | None, head: str | None, texts: list[str]) -> str | N
                     n = _WORD_NUMBERS.get(raw, 0)
                 if 1 <= n <= 40:
                     return str(n)
-    # Count distinct dated/event mentions containing a head term.
-    if head_terms:
-        hits = 0
-        for text in person_texts:
-            lower = text.lower()
-            if any(term in lower for term in head_terms):
-                if re.search(r"\b(?:went|go|gone|visited|attended|trip|times?)\b", lower) or re.search(
-                    r"\b(?:19|20)\d{2}\b|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b",
-                    lower,
-                ):
-                    hits += 1
-        if hits >= 1:
-            return str(min(hits, 12))
+    # Do not invent counts from weak co-occurrence — wrong digits destroy F1.
     return None
 
 

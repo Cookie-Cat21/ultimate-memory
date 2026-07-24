@@ -467,7 +467,8 @@ class MemoryRouter:
                     -float(item.get("score") or 0.0),
                 ),
             )
-            context_texts = [str(item.get("text") or "")[:500] for item in ordered[:14]]
+            ctx_limit = 22 if (agg_intent and agg_intent.kind == "hypothetical") else 14
+            context_texts = [str(item.get("text") or "")[:500] for item in ordered[:ctx_limit]]
             try:
                 from .llm_answer import get_local_answerer
 
