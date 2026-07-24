@@ -11,3 +11,6 @@ data/
 .env
 config/ultimate-memory.toml
 
+
+# Benchmark run artifacts
+evals/results/
