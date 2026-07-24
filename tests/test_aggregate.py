@@ -90,6 +90,52 @@ class TestAggregateAnswer:
         assert answer
         assert "likely no" in answer.lower()
 
+    def test_duration_friends(self):
+        texts = CAROLINE + [
+            "Caroline: I've known these friends for 4 years, since I moved from my home country."
+        ]
+        answer = aggregate_answer(
+            "How long has Caroline had her current group of friends for?",
+            texts,
+        )
+        assert answer
+        assert "4 years" in answer.lower()
+
+    def test_open_domain_political(self):
+        answer = aggregate_answer(
+            "What would Caroline's political leaning likely be?",
+            CAROLINE,
+        )
+        assert answer == "Liberal"
+
+    def test_open_domain_melanie_lgbtq_member(self):
+        texts = MELANIE + [
+            "Melanie: I'm proud of Caroline's LGBTQ advocacy and support her."
+        ]
+        answer = aggregate_answer(
+            "Would Melanie be considered a member of the LGBTQ community?",
+            texts,
+        )
+        assert answer
+        assert "likely no" in answer.lower()
+
+    def test_research_adoption(self):
+        answer = aggregate_answer("What did Caroline research?", CAROLINE + [
+            "Caroline: Researching adoption agencies — it's been a dream to have a family."
+        ])
+        assert answer
+        assert "adoption" in answer.lower()
+
+    def test_books_shared_media(self):
+        texts = MELANIE + [
+            'Melanie: This book I read last year reminds me to pursue my dreams. [shared book: "Nothing is Impossible"]',
+            'Melanie: I loved reading "Charlotte\'s Web" as a kid.',
+        ]
+        answer = aggregate_answer("What books has Melanie read?", texts)
+        assert answer
+        assert "Nothing is Impossible" in answer
+        assert "Charlotte" in answer
+
 
 class TestInventories:
     def test_build_speaker_inventories(self):

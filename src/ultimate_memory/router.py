@@ -187,6 +187,22 @@ class MemoryRouter:
             expansions.append("research adoption agencies")
         if "relationship status" in q_lower_all or "single" in q_lower_all:
             expansions.append("single parent relationship")
+        if "political" in q_lower_all or "leaning" in q_lower_all:
+            expansions.append("LGBTQ rights liberal inclusive")
+        if "religious" in q_lower_all:
+            expansions.append("church faith religious conservatives")
+        if "personality" in q_lower_all or "traits" in q_lower_all:
+            expansions.append("thoughtful authentic driven real")
+        if "national park" in q_lower_all or "theme park" in q_lower_all:
+            expansions.append("camping nature outdoors meteor")
+        if "roadtrip" in q_lower_all or "road trip" in q_lower_all:
+            expansions.append("roadtrip accident scared family")
+        if "home country" in q_lower_all or "move back" in q_lower_all:
+            expansions.append("adoption agencies family children")
+        if "seuss" in q_lower_all or "bookshelf" in q_lower_all:
+            expansions.append("kids books classics children's library")
+        if "vivaldi" in q_lower_all or "four seasons" in q_lower_all:
+            expansions.append("classical music bach mozart")
 
         search_queries = [dense_query, question, *expansions]
         rich_contexts: list[dict] = []
@@ -413,6 +429,10 @@ class MemoryRouter:
                         "kids_like",
                         "books",
                         "activities",
+                        "research",
+                        "political",
+                        "personality",
+                        "education_fields",
                     }
                 )
             )

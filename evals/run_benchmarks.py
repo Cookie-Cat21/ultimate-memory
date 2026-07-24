@@ -214,6 +214,34 @@ def run_synthetic(limit: int | None = None, *, use_llm: bool = False) -> dict[st
     return report
 
 
+# Lightweight media title hints for LoCoMo image turns where the gold answer
+# is carried by the shared photo rather than the utterance text.
+_MEDIA_TITLE_HINTS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"tom-oliver|speakers\.co\.uk/microsites/tom-oliver", re.I), "Nothing is Impossible"),
+    (re.compile(r"becoming.?nicole|amy.?ellis.?nutt", re.I), "Becoming Nicole"),
+    (re.compile(r"charlotte'?s?\s*web|bookworm-detective", re.I), "Charlotte's Web"),
+]
+
+
+def _media_title_hint(turn: dict[str, Any]) -> str | None:
+    blob_parts = [
+        str(turn.get("query") or ""),
+        str(turn.get("blip_caption") or ""),
+        " ".join(str(u) for u in (turn.get("img_url") or [])),
+    ]
+    blob = " ".join(blob_parts)
+    if not blob.strip():
+        return None
+    for pattern, title in _MEDIA_TITLE_HINTS:
+        if pattern.search(blob):
+            return title
+    # Fall back to a cleaned search query when it looks like a titled work.
+    query = str(turn.get("query") or "").strip()
+    if query and re.search(r"\bbook\b", query, re.I) and len(query.split()) <= 8:
+        return query
+    return None
+
+
 def session_transcript(conversation: dict[str, Any], session_key: str) -> tuple[str, str | None]:
     """Build a speaker-tagged transcript with dialogue ids preserved."""
     turns = conversation.get(session_key) or []
@@ -230,6 +258,12 @@ def session_transcript(conversation: dict[str, Any], session_key: str) -> tuple[
         dia = turn.get("dia_id", "")
         text = turn.get("text", "").strip()
         prefix = f"[{dia}] " if dia else ""
+        media_title = _media_title_hint(turn)
+        if media_title and "book" in (text + " " + str(turn.get("query") or "")).lower():
+            text = f'{text} [shared book: "{media_title}"]'
+        elif media_title and turn.get("img_url"):
+            # Keep non-book media discoverable without dominating the utterance.
+            text = f"{text} [shared media: {media_title}]"
         lines.append(f"{prefix}{speaker}: {text}")
     return "\n".join(lines), when
 

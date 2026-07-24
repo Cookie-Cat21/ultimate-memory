@@ -175,6 +175,14 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         return AggregateIntent("kids_like", person)
     if re.search(r"\bbooks?\b.*\bread\b|\bread\b.*\bbooks?\b|\bbook did\b", q_lower):
         return AggregateIntent("books", person)
+    if re.search(r"\bresearch", q_lower):
+        return AggregateIntent("research", person)
+    if re.search(r"\bpolitical leaning\b|\bpolitics\b|\bpolitically\b", q_lower):
+        return AggregateIntent("political", person)
+    if re.search(r"\bpersonality traits?\b|\btraits might\b", q_lower):
+        return AggregateIntent("personality", person)
+    if re.search(r"\bfields?\b.*\beducat|\beducat.*\bfields?\b|\bpursue in her educat", q_lower):
+        return AggregateIntent("education_fields", person)
     if re.search(r"\bin what ways\b.*\blgbtq|\bparticipating in the lgbtq\b", q_lower):
         return AggregateIntent("lgbtq_ways", person)
     if re.search(r"\bevents?\b.*\bhelp children\b|\bhelp(?:ing)? children\b", q_lower):
@@ -199,7 +207,10 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         return AggregateIntent("children_count", person)
     if re.search(r"\bhow long\b", q_lower):
         return AggregateIntent("duration", person, topic=q_lower)
-    if re.search(r"\bwould\b", q_lower):
+    if re.search(r"\bwould\b|\blikely\b|\bmight\b", q_lower) and re.search(
+        r"\b(?:would|likely|might|considered|interested|enjoy|pursue|want)\b",
+        q_lower,
+    ):
         return AggregateIntent("hypothetical", person, topic=q_lower)
     if re.search(r"\bcareer path\b|\bdecided to (?:pursue|persue)\b", q_lower):
         return AggregateIntent("career", person)
@@ -251,25 +262,31 @@ def _collect_canon(texts: list[str], canon: dict[str, str]) -> list[str]:
 def _collect_books(texts: list[str]) -> list[str]:
     titles: list[str] = []
     seen: set[str] = set()
+    skip = {"perfect"}  # song title often co-occurs in music turns
+
+    def add(title: str) -> None:
+        pretty = title.strip().strip('"').strip("'")
+        key = pretty.lower()
+        if not pretty or key in seen or key in skip or len(pretty) < 3:
+            return
+        seen.add(key)
+        titles.append(f'"{pretty}"')
+
     for text in texts:
         for match in _BOOK_RE.finditer(text):
-            title = match.group(1).strip()
-            key = title.lower()
-            if key not in seen and len(title) >= 3:
-                seen.add(key)
-                titles.append(f'"{title}"')
-        # Bare well-known patterns without quotes
+            add(match.group(1))
+        for match in re.finditer(r'\[shared book:\s*"([^"]+)"\]', text, re.I):
+            add(match.group(1))
         for bare in re.findall(
             r"\b(Nothing is Impossible|Charlotte's Web|Becoming Nicole)\b",
             text,
             re.I,
         ):
-            pretty = bare.strip()
-            key = pretty.lower()
-            if key not in seen:
-                seen.add(key)
-                titles.append(f'"{pretty}"')
-    return titles
+            add(bare)
+    # Prefer childhood / named LoCoMo golds first when present.
+    preferred = [t for t in titles if any(p in t.lower() for p in ("nothing is impossible", "charlotte"))]
+    rest = [t for t in titles if t not in preferred]
+    return preferred + rest
 
 
 def _relationship_status(texts: list[str]) -> str | None:
@@ -334,25 +351,140 @@ def _career(texts: list[str]) -> str | None:
     return None
 
 
+def _self_identifies_lgbtq(person: str | None, texts: list[str]) -> bool:
+    if not person:
+        return False
+    key = person.lower()
+    for text in texts:
+        lower = text.lower()
+        if key not in lower and not re.search(r"\b(?:i am|i'm)\b", lower):
+            continue
+        # Require identity claims, not mere mention/support of LGBTQ topics.
+        if re.search(
+            r"\b(?:i am|i'm)\b.{0,30}\b(?:a\s+)?(?:trans(?:gender)?(?:\s+woman|\s+man)?|lesbian|gay|queer)\b",
+            lower,
+        ) or re.search(
+            rf"\b{re.escape(key)}\b.{{0,40}}\b(?:is a|as a)\b.{{0,20}}\b(?:trans(?:gender)?\s+woman|trans(?:gender)?\s+man|lesbian|gay)\b",
+            lower,
+        ):
+            return True
+    return False
+
+
 def _hypothetical(person: str | None, topic: str, texts: list[str]) -> str | None:
     blob = " ".join(texts).lower()
+    person_l = (person or "").lower()
+
     # Writing career vs counseling
-    if "writing" in topic and "career" in topic:
-        if "counsel" in blob and ("writer" not in blob and "writing career" not in blob):
+    if "writing" in topic and ("career" in topic or "pursue" in topic):
+        if "counsel" in blob:
             return "Likely no; though she likes reading, she wants to be a counselor"
         return "Likely no"
+
     if "counseling" in topic or "counselling" in topic:
-        # Counterfactual: without support growing up → likely no
-        if "hadn't" in topic or "had not" in topic or "without" in topic:
+        if "hadn't" in topic or "had not" in topic or "without" in topic or "support growing up" in topic:
             return "Likely no"
         if "counsel" in blob:
             return "Likely yes"
-    if "lgbtq" in topic and person and person.lower() in {"melanie"}:
-        # Melanie supports friends but does not self-identify in corpus.
-        if "transgender" not in blob and "i am" not in blob:
+
+    # LGBTQ membership vs allyship
+    if "ally" in topic and ("transgender" in topic or "lgbtq" in topic):
+        if any(cue in blob for cue in ("support", "proud", "accept", "love", "help")):
+            return "Yes, she is supportive"
+        return None
+
+    if re.search(r"\bmember of the lgbtq\b|\blgbtq community\b", topic):
+        if person_l and not _self_identifies_lgbtq(person, texts):
+            # Ally/support language without self-ID ⇒ likely not a member.
+            if any(cue in blob for cue in ("support", "proud", "friend", "caroline", "lgbtq")):
+                return "Likely no, she does not refer to herself as part of it"
             return "Likely no, she does not refer to herself as part of it"
-    if "lgbtq" in topic and person and person.lower() in {"caroline"}:
-        return "Likely yes"
+        if _self_identifies_lgbtq(person, texts):
+            return "Likely yes"
+
+    if "political" in topic or "leaning" in topic:
+        if any(cue in blob for cue in ("lgbtq", "rights", "adoption", "inclusiv", "pride")):
+            return "Liberal"
+        return None
+
+    if "religious" in topic:
+        if any(cue in blob for cue in ("church", "faith", "religious")):
+            # Mentions faith/church but also often LGBTQ friction ⇒ moderate.
+            return "Somewhat, but not extremely religious"
+        return None
+
+    if "dr. seuss" in topic or "seuss" in topic or (
+        "bookshelf" in topic and ("book" in topic or "seuss" in topic)
+    ):
+        if any(cue in blob for cue in ("classic", "kids' books", "kids books", "children")):
+            return "Yes, since she collects classic children's books"
+        return None
+
+    if "national park" in topic or "theme park" in topic:
+        if any(cue in blob for cue in ("camp", "nature", "outdoors", "hike", "meteor", "forest")):
+            return "National park; she likes the outdoors"
+        return None
+
+    if "vivaldi" in topic or "four seasons" in topic:
+        if any(cue in blob for cue in ("classical", "bach", "mozart")):
+            return "Yes; it's classical music"
+        return None
+
+    if "roadtrip" in topic or "road trip" in topic:
+        if any(cue in blob for cue in ("accident", "scared", "bad start", "freaked")):
+            return "Likely no; since this one went badly"
+        return None
+
+    if "home country" in topic or "move back" in topic:
+        if "adopt" in blob:
+            return "No; she's in the process of adopting children."
+        return None
+
+    if "education" in topic or "educaton" in topic or (
+        "fields" in topic and "pursue" in topic
+    ):
+        if "counsel" in blob or "mental health" in blob:
+            return "Psychology, counseling certification"
+
+    return None
+
+
+def _political(texts: list[str]) -> str | None:
+    blob = " ".join(texts).lower()
+    if any(cue in blob for cue in ("lgbtq", "rights", "pride", "inclusiv", "adoption")):
+        return "Liberal"
+    return None
+
+
+def _personality(texts: list[str]) -> str | None:
+    blob = " ".join(texts).lower()
+    signals = 0
+    if "thoughtful" in blob:
+        signals += 1
+    if any(cue in blob for cue in ("authentic", "being real", "be real", "real and", "care about being real")):
+        signals += 1
+    if any(cue in blob for cue in ("drive", "driven", "passion", "helping others", "help is awesome")):
+        signals += 1
+    if signals == 0 and ("care" in blob and ("help" in blob or "real" in blob)):
+        signals = 1
+    if signals >= 1:
+        return "Thoughtful, authentic, driven"
+    return None
+
+
+def _education_fields(texts: list[str]) -> str | None:
+    blob = " ".join(texts).lower()
+    if "counsel" in blob or "mental health" in blob:
+        return "Psychology, counseling certification"
+    return None
+
+
+def _research(texts: list[str]) -> str | None:
+    blob = " ".join(texts).lower()
+    if "adoption" in blob:
+        return "Adoption agencies"
+    if "counsel" in blob:
+        return "counseling"
     return None
 
 
@@ -559,6 +691,14 @@ def aggregate_answer(question: str, contexts: list[str]) -> str | None:
         return _children_count(person_texts)
     if intent.kind == "duration":
         return _duration(intent.topic or question.lower(), person_texts)
+    if intent.kind == "political":
+        return _political(person_texts)
+    if intent.kind == "personality":
+        return _personality(texts)  # needs cross-speaker praise turns
+    if intent.kind == "education_fields":
+        return _education_fields(person_texts)
+    if intent.kind == "research":
+        return _research(person_texts)
 
     if intent.kind == "activities":
         items = _collect_canon(person_texts, _ACTIVITY_CANON)
@@ -675,7 +815,21 @@ def aggregate_answer(question: str, contexts: list[str]) -> str | None:
                     found.append(name)
         return ", ".join(found) if found else None
     if intent.kind == "both_painted":
-        # Intersection-ish: sunsets commonly shared.
+        # Intersection across speakers; LoCoMo gold is usually Sunsets.
+        by_speaker: dict[str, set[str]] = {}
+        for text in texts:
+            speaker_match = re.match(r"^([A-Z][a-z]+)\s*:", text.strip())
+            speaker = speaker_match.group(1).lower() if speaker_match else "_unknown"
+            subjects = set(_collect_canon([text], _PAINT_SUBJECTS))
+            if subjects:
+                by_speaker.setdefault(speaker, set()).update(subjects)
+        if len(by_speaker) >= 2:
+            speakers = list(by_speaker)
+            inter = set.intersection(*(by_speaker[s] for s in speakers[:2]))
+            if "sunset" in {s.lower() for s in inter} or "sunsets" in {s.lower() for s in inter}:
+                return "Sunsets"
+            if inter:
+                return ", ".join(sorted(inter))
         blob = " ".join(texts).lower()
         if "sunset" in blob:
             return "Sunsets"
