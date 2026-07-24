@@ -1278,6 +1278,8 @@ def aggregate_answer(question: str, contexts: list[str]) -> str | None:
         return _how_many(intent.person, intent.topic, texts)
     if intent.kind == "both_intersection":
         return _both_intersection(question, intent.topic, texts)
+    if intent.kind == "entity_infer":
+        return _entity_infer(intent.topic or question.lower(), texts)
 
     if intent.kind == "activities":
         items = _collect_canon(person_texts, _ACTIVITY_CANON)
