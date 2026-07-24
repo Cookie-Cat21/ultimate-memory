@@ -313,7 +313,7 @@ def _looks_like_list_question(question: str) -> bool:
     if re.search(
         r"\b(?:types of|kinds of|names of|in common|both .+ and|"
         r"which (?:events|cities|countries|states|places|books|activities|"
-        r"games|items|causes|shelters|exercises|desserts))\b",
+        r"games|items|causes|shelters|exercises|desserts|locations))\b",
         q_lower,
     ):
         return True
@@ -324,14 +324,15 @@ def _looks_like_list_question(question: str) -> bool:
         r"\bwhat are\b.+\b(?:'s|s')\s+"
         r"(?:hobbies|pets|dogs|cats|kids|children|books|activities|interests|"
         r"allergies|emotions|goals|causes|items|games|desserts|exercises|"
-        r"friends|names)\b",
+        r"friends|names|favorite desserts|recommendations)\b",
         q_lower,
     ):
         return True
-    # "What <plural-ish head> has/have Person …" / "Where has Person … friends/…"
+    # "What <plural-ish head> has/have Person …" (case-insensitive on WH-word).
     if re.search(
-        r"\b(?:what|which)\s+(?:[^?]{0,40}?)(?:has|have|did|does|do)\s+[A-Z][a-z]{2,}\b",
+        r"\b(?:what|which)\s+(?:[^?]{0,60}?)(?:has|have|did|does|do)\s+[A-Z][a-z]{2,}\b",
         q,
+        re.I,
     ):
         # Reject pure singular "what job/career/book did" unless plural markers.
         head = _head_noun(q) or ""
@@ -340,7 +341,8 @@ def _looks_like_list_question(question: str) -> bool:
             r"(?:ies\b|types|kinds|names|events|activities|hobbies|items|"
             r"classes|games|desserts|causes|shelters|damages|emotions|"
             r"interests|writings|exercises|countries|cities|states|places|"
-            r"people|friends|martial|yoga|music|outdoor|european|"
+            r"people|friends|martial|yoga|music|outdoor|european|locations|"
+            r"areas|recommendations|mediums|skills|sports|"
             r"[a-z]{3,}s\b)",
             head_l,
         ) or re.search(r"\b(?:and|or)\b", head_l):
@@ -354,9 +356,10 @@ def _looks_like_list_question(question: str) -> bool:
     if re.search(
         r"\bwhere has\s+[A-Z][a-z]{2,}\s+(?:made|met|been|visited|traveled|gone)\b",
         q,
+        re.I,
     ):
         return True
-    if re.search(r"\bwhere has\s+[A-Z][a-z]{2,}\s+made friends\b", q):
+    if re.search(r"\bwhere has\s+[A-Z][a-z]{2,}\s+made friends\b", q, re.I):
         return True
     return False
 
