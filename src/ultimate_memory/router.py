@@ -32,7 +32,12 @@ from .models import (
     SearchResult,
     safe_slug,
 )
-from .aggregate import aggregate_answer, detect_aggregate_intent
+from .aggregate import (
+    aggregate_answer,
+    detect_aggregate_intent,
+    harvest_list_items,
+    merge_list_answers,
+)
 from .answer import f1_ready_text, synthesize_answer
 from .hops import (
     MAX_HOP_SEARCHES,
@@ -346,15 +351,34 @@ class MemoryRouter:
             for atom in self.store.search_atoms(agg_intent.person, limit=100):
                 if atom.text:
                     person_atom_texts.append(atom.text)
-            for extra_q in (
+            topic = (agg_intent.topic or "").strip()
+            topic_bits = [t for t in re.findall(r"[a-z]{3,}", topic.lower()) if t][:4]
+            extra_queries = [
                 f"{agg_intent.person} profile",
                 f"{agg_intent.person} activities",
                 f"{agg_intent.person} books",
                 f"{agg_intent.person} painted",
                 f"{agg_intent.person} LGBTQ",
                 f"{agg_intent.person} relationship",
-            ):
-                for atom in self.store.search_atoms(extra_q, limit=10):
+                f"{agg_intent.person} places",
+                f"{agg_intent.person} items",
+                f"{agg_intent.person} hobbies",
+                f"{agg_intent.person} desserts",
+                f"{agg_intent.person} games",
+                f"{agg_intent.person} causes",
+                f"{agg_intent.person} shelters",
+                f"{agg_intent.person} dogs",
+                f"{agg_intent.person} children",
+                f"{agg_intent.person} countries",
+                f"{agg_intent.person} states",
+                f"{agg_intent.person} exercises",
+                f"{agg_intent.person} martial arts",
+                f"{agg_intent.person} yoga",
+            ]
+            for bit in topic_bits:
+                extra_queries.append(f"{agg_intent.person} {bit}")
+            for extra_q in extra_queries:
+                for atom in self.store.search_atoms(extra_q, limit=8):
                     if not atom.text:
                         continue
                     person_atom_texts.append(atom.text)
@@ -370,6 +394,20 @@ class MemoryRouter:
                             " relationship status:",
                             " career:",
                             " identity:",
+                            " places:",
+                            " items:",
+                            " hobbies:",
+                            " desserts:",
+                            " games:",
+                            " causes:",
+                            " shelters:",
+                            " dogs:",
+                            " children:",
+                            " countries:",
+                            " states:",
+                            " exercises:",
+                            " martial arts:",
+                            " yoga types:",
                         )
                     ):
                         inventory_contexts.append(
@@ -434,6 +472,7 @@ class MemoryRouter:
             "personality",
             "education_fields",
             "how_many",
+            "entity_infer",
         }
         prefer_aggregated = False
         if aggregated and agg_intent is not None:
@@ -471,8 +510,8 @@ class MemoryRouter:
                 prefer_aggregated = True
 
         should_use_llm = use_llm if use_llm is not None else use_llm_from_env()
-        # Only force the list-answerer when we already have list-shaped evidence;
-        # otherwise it over-generates and tanks later LoCoMo dialogs.
+        # Force list-answerer for inventory-union whenever we have person atoms;
+        # harvest ∪ LLM recovers multi-span golds that extractive single-span misses.
         inventory_evidence = any(
             marker in text
             for text in person_atom_texts
@@ -484,6 +523,19 @@ class MemoryRouter:
                 " painted:",
                 " LGBTQ participation:",
                 " profile:",
+                " items:",
+                " hobbies:",
+                " desserts:",
+                " games:",
+                " causes:",
+                " shelters:",
+                " dogs:",
+                " children:",
+                " countries:",
+                " states:",
+                " exercises:",
+                " martial arts:",
+                " yoga types:",
             )
         )
         should_list_answer = bool(
@@ -492,6 +544,7 @@ class MemoryRouter:
             and (
                 (aggregated and ("," in aggregated or " and " in aggregated.lower()))
                 or inventory_evidence
+                or (agg_intent.kind == "inventory_union" and len(person_atom_texts) >= 2)
             )
         )
 
@@ -511,6 +564,7 @@ class MemoryRouter:
                         or str(item.get("text") or "").startswith("[D")
                         or " profile:" in str(item.get("text") or "")
                         or " activities:" in str(item.get("text") or "")
+                        or " items:" in str(item.get("text") or "")
                     )
                     else 1,
                     -float(item.get("score") or 0.0),
@@ -527,7 +581,7 @@ class MemoryRouter:
                     if key and key not in seen_l:
                         seen_l.add(key)
                         list_contexts.append(text.strip())
-                context_texts = list_contexts[:24]
+                context_texts = list_contexts[:28]
             else:
                 ctx_limit = 22 if (agg_intent and agg_intent.kind == "hypothetical") else 14
                 context_texts = [str(item.get("text") or "")[:500] for item in ordered[:ctx_limit]]
@@ -536,10 +590,21 @@ class MemoryRouter:
 
                 answerer = get_local_answerer()
                 if should_list_answer:
-                    answer_text = answerer.answer_list(question, context_texts)
-                    # Keep deterministic aggregate when it has more items.
-                    if aggregated and aggregated.count(",") > answer_text.count(","):
-                        answer_text = aggregated
+                    llm_list = answerer.answer_list(question, context_texts)
+                    head = (agg_intent.topic if agg_intent else None) or question
+                    harvested = harvest_list_items(
+                        head,
+                        person_atom_texts or context_texts,
+                        person=agg_intent.person if agg_intent else None,
+                    )
+                    harvest_text = ", ".join(harvested) if harvested else None
+                    answer_text = (
+                        merge_list_answers(aggregated, harvest_text, llm_list, limit=10)
+                        or llm_list
+                        or harvest_text
+                        or aggregated
+                        or ""
+                    )
                 else:
                     answer_text = answerer.answer(question, context_texts)
             except Exception as exc:
@@ -559,7 +624,20 @@ class MemoryRouter:
             ):
                 answer_text = aggregated
         else:
-            answer_text = aggregated or synthesize_answer(question, rich_contexts)
+            if should_list_answer:
+                head = (agg_intent.topic if agg_intent else None) or question
+                harvested = harvest_list_items(
+                    head,
+                    person_atom_texts or retrieved_texts,
+                    person=agg_intent.person if agg_intent else None,
+                )
+                answer_text = (
+                    merge_list_answers(aggregated, ", ".join(harvested) if harvested else None, limit=10)
+                    or aggregated
+                    or synthesize_answer(question, rich_contexts)
+                )
+            else:
+                answer_text = aggregated or synthesize_answer(question, rich_contexts)
         return {
             "question": question,
             "answer": answer_text,

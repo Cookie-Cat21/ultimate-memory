@@ -142,3 +142,45 @@ class TestInventories:
         inv = build_speaker_inventories("Melanie", MELANIE)
         assert any("activities:" in line for line in inv)
         assert any("camp places:" in line for line in inv)
+
+    def test_topic_inventories(self):
+        facts = [
+            "Maria made a banana split sundae and peach cobbler for the fundraiser.",
+            "Maria practiced aerial yoga and kundalini yoga this year.",
+            "John did kickboxing and Taekwondo with friends.",
+            "Maria's dogs are named Coco and Shadow.",
+        ]
+        inv = build_speaker_inventories("Maria", facts) + build_speaker_inventories("John", facts)
+        blob = "\n".join(inv).lower()
+        assert "desserts:" in blob or "banana" in blob
+        assert "yoga" in blob or "martial" in blob
+
+
+class TestListUnionIntent:
+    def test_plural_has_person(self):
+        intent = detect_aggregate_intent("What desserts has Maria made?")
+        assert intent is not None
+        assert intent.kind == "inventory_union"
+
+    def test_how_many_dogs(self):
+        intent = detect_aggregate_intent(
+            "How many dogs has Maria adopted from the dog shelter she volunteers at?"
+        )
+        assert intent is not None
+        assert intent.kind == "how_many"
+
+    def test_how_many_twice(self):
+        texts = ["Joanna found new hiking trails twice this year near her home."]
+        answer = aggregate_answer("How many times has Joanna found new hiking trails?", texts)
+        assert answer == "2"
+
+    def test_does_not_steal_when(self):
+        intent = detect_aggregate_intent("When did Caroline go to the LGBTQ support group?")
+        assert intent is None or intent.kind not in {"inventory_union", "how_many"}
+
+    def test_entity_infer_holiday(self):
+        intent = detect_aggregate_intent(
+            "Around which US holiday did Maria get into a car accident?"
+        )
+        assert intent is not None
+        assert intent.kind == "entity_infer"
