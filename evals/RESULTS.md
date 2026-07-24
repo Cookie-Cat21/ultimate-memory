@@ -15,19 +15,20 @@ Offline token-F1 vs A-MEM Table 1 (GPT-4o-mini). Mem0/Zep **J** scores need an L
 
 | Category | Ours | A-MEM | MemGPT | MemoryBank | ReadAgent |
 |---|---:|---:|---:|---:|---:|
-| single_hop | **39.48** | 27.02 ✓ | 26.65 ✓ | ✓ | ✓ |
-| multi_hop | **27.82** | 45.85 | 25.52 ✓ | ✓ | ✓ |
-| temporal | **33.54** | 12.14 ✓ | 9.15 ✓ | ✓ | ✓ |
+| single_hop | **39.82** | 27.02 ✓ | 26.65 ✓ | ✓ | ✓ |
+| multi_hop | **27.99** | 45.85 | 25.52 ✓ | ✓ | ✓ |
+| temporal | **33.91** | 12.14 ✓ | 9.15 ✓ | ✓ | ✓ |
 | open_domain | **33.43** | 44.65 | 41.04 | ✓ | ✓ |
 
 **Scoreboard:** A-MEM **2/4**, MemGPT **3/4**, MemoryBank/ReadAgent **4/4**.
 
-## Dialog-1 (152 Qs)
+Overall token F1 **36.0** (adversarial skipped).
 
-| Model | single | multi | temporal | open | vs A-MEM |
-|---|---:|---:|---:|---:|---|
-| `flan-t5-large` | 33.3 | 60.0 | 23.4 | 96.2 | 4/4 ✓ |
-| `flan-t5-xl` | 33.5 | **66.2** | 22.5 | 96.2 | 4/4 ✓ |
+## Dialog-1 (152 Qs) — full A-MEM sweep
+
+| Model | single | multi | temporal | open |
+|---|---:|---:|---:|---:|
+| `flan-t5-xl` | 33.5 | **66.2** | 22.5 | **96.2** |
 
 ## Synthetic suite
 
@@ -37,11 +38,5 @@ Constraint accuracy **100%**; token F1 **~93%+**.
 
 ```bash
 uv sync --extra dev --extra llm
-uv run python evals/run_benchmarks.py --suite synthetic
 uv run python evals/run_benchmarks.py --suite locomo --llm --model google/flan-t5-xl
 ```
-
-## Notes
-
-- Remaining full-suite gap vs A-MEM is multi-hop list synthesis + open-domain entity inference on dialogs 2–10.
-- Dialog-1 already exceeds A-MEM on all four categories with the same local stack.
