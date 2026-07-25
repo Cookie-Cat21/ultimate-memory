@@ -384,7 +384,7 @@ class MemoryRouter:
             for atom in self.store.search_atoms(person, limit=120):
                 if atom.text:
                     person_atom_texts.append(atom.text)
-            topic = (agg_intent.topic if agg_intent else "").strip()
+            topic = ((agg_intent.topic if agg_intent else None) or "").strip()
             topic_bits = [t for t in re.findall(r"[a-z]{3,}", topic.lower()) if t][:4]
             # Also probe question content nouns with the person name.
             q_bits = [

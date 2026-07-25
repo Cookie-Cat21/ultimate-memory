@@ -24,12 +24,14 @@ Offline token-F1 vs A-MEM Table 1 (GPT-4o-mini). Mem0/Zep **J** scores need an L
 
 Latest full rebench (inventories + list filters, flan-t5-xl): overall **34.94**, multi **26.6**, open **33.89**.
 
+Full Qwen2.5-3B-Instruct suite: overall **30.54** (single regressed to 31.0 — instruct echoes hurt span QA). Prefer flan-t5-xl for full-suite + person-window / echo-reject fixes (XL11 running).
+
 ## Dialog-1 (152 Qs) — full A-MEM sweep
 
 | Model | single | multi | temporal | open |
 |---|---:|---:|---:|---:|
 | `flan-t5-xl` | 34.0 | **69.8** | 25.2 | **96.2** |
-| `Qwen2.5-3B-Instruct` | (running) | | | |
+| `Qwen2.5-3B-Instruct` | 30.7 | **68.4** | 24.4 | **96.2** |
 
 ## Synthetic suite
 
