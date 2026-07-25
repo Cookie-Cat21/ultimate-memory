@@ -209,3 +209,13 @@ class TestListUnionIntent:
         assert "Banana split sundae" in kept
         assert "Peach cobbler" in kept
         assert all("tech issues" not in x for x in kept)
+
+    def test_children_count_from_roles(self):
+        texts = [
+            "Melanie treasures the memory of her youngest child taking her first steps.",
+            "Melanie celebrated her daughter's birthday with a concert.",
+            "Melanie went on a road trip with her family which started off with an accident involving her son.",
+            "Melanie loves spending time with her kids.",
+        ]
+        answer = aggregate_answer("How many children does Melanie have?", texts)
+        assert answer == "3"

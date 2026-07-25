@@ -25,6 +25,17 @@ _RELATIVE = re.compile(
     re.I,
 )
 
+_CAUSAL_HINTS = (
+    "qwen",
+    "llama",
+    "mistral",
+    "phi-",
+    "gemma",
+    "olmo",
+    "smollm",
+    "tinyllama",
+)
+
 
 def env_model_name() -> str:
     return os.environ.get("ULTIMATE_MEMORY_LOCAL_LLM", DEFAULT_MODEL).strip() or DEFAULT_MODEL
@@ -34,11 +45,20 @@ def use_llm_from_env() -> bool:
     return os.environ.get("ULTIMATE_MEMORY_USE_LLM", "").strip().lower() in {"1", "true", "yes"}
 
 
+def _is_causal_model(model_name: str) -> bool:
+    lower = model_name.lower()
+    if "t5" in lower or "flan" in lower or "bart" in lower:
+        return False
+    return any(hint in lower for hint in _CAUSAL_HINTS)
+
+
 def _clean_answer(text: str) -> str:
     text = text.strip().strip('"').strip("'")
     text = re.sub(r"\s+", " ", text)
     # Drop leading "Answer:" echoes
     text = re.sub(r"^(?:answer|a)\s*:\s*", "", text, flags=re.I)
+    # Causal models sometimes echo the question or add chat markers.
+    text = re.sub(r"^(?:assistant|user|system)\s*:\s*", "", text, flags=re.I)
     if _UNANSWERABLE.match(text):
         return "I don't know"
     return text
@@ -149,33 +169,52 @@ def hybrid_answer(question: str, contexts: list[str], llm_answer: str) -> str:
 
 
 class LocalAnswerer:
-    """Seq2seq local answerer (default: google/flan-t5-base)."""
+    """Local answerer supporting seq2seq (Flan-T5) and causal instruct models (Qwen)."""
 
     def __init__(self, model_name: str | None = None) -> None:
         self.model_name = model_name or env_model_name()
         self._model = None
         self._tokenizer = None
         self._torch = None
+        self._causal = _is_causal_model(self.model_name)
 
     def _ensure_loaded(self) -> None:
         if self._model is not None:
             return
         try:
             import torch
-            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+            from transformers import AutoModelForCausalLM, AutoModelForSeq2SeqLM, AutoTokenizer
         except ImportError as exc:
             raise RuntimeError(
                 "Local LLM dependencies missing. Install with: uv sync --extra llm"
             ) from exc
 
-        logger.info("Loading local answerer model %s", self.model_name)
-        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        self._model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name)
+        logger.info(
+            "Loading local answerer model %s (%s)",
+            self.model_name,
+            "causal" if self._causal else "seq2seq",
+        )
+        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=True)
+        if self._causal:
+            # Prefer fp16/bf16 when CUDA is available; otherwise float32 CPU.
+            dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+            self._model = AutoModelForCausalLM.from_pretrained(
+                self.model_name,
+                torch_dtype=dtype,
+                trust_remote_code=True,
+                low_cpu_mem_usage=True,
+            )
+            if self._tokenizer.pad_token_id is None:
+                self._tokenizer.pad_token = self._tokenizer.eos_token
+        else:
+            self._model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name)
         self._model.eval()
         self._torch = torch
 
     def _generate(self, prompt: str, *, max_new_tokens: int = 48) -> str:
         self._ensure_loaded()
+        if self._causal:
+            return self._generate_causal(prompt, max_new_tokens=max_new_tokens)
         inputs = self._tokenizer(
             prompt,
             return_tensors="pt",
@@ -191,6 +230,40 @@ class LocalAnswerer:
             )
         return self._tokenizer.decode(outputs[0], skip_special_tokens=True)
 
+    def _generate_causal(self, prompt: str, *, max_new_tokens: int = 48) -> str:
+        tok = self._tokenizer
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You answer questions from memory snippets only. "
+                    "Reply with a short LoCoMo-style answer span or comma-separated list. "
+                    "No preamble."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ]
+        if hasattr(tok, "apply_chat_template"):
+            text = tok.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            text = prompt
+        inputs = tok(text, return_tensors="pt", truncation=True, max_length=2048)
+        input_len = int(inputs["input_ids"].shape[-1])
+        with self._torch.no_grad():
+            outputs = self._model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                pad_token_id=tok.pad_token_id,
+                eos_token_id=tok.eos_token_id,
+            )
+        gen = outputs[0][input_len:]
+        return tok.decode(gen, skip_special_tokens=True)
+
     def answer(self, question: str, contexts: list[str]) -> str:
         """Answer *question* from memory snippets in LoCoMo gold style."""
         trimmed = [c.strip() for c in contexts if c and c.strip()][:MAX_CONTEXTS]
@@ -199,7 +272,7 @@ class LocalAnswerer:
             return ""
 
         prompt = _build_prompt(question, trimmed)
-        raw = self._generate(prompt, max_new_tokens=48)
+        raw = self._generate(prompt, max_new_tokens=64 if self._causal else 48)
         return hybrid_answer(question, trimmed, raw)
 
     def answer_list(self, question: str, contexts: list[str]) -> str:
@@ -218,7 +291,7 @@ class LocalAnswerer:
             f"Question: {question}\n"
             "Comma-separated list:"
         )
-        raw = _clean_answer(self._generate(prompt, max_new_tokens=64))
+        raw = _clean_answer(self._generate(prompt, max_new_tokens=96 if self._causal else 64))
         if not raw or raw.lower() == "i don't know":
             return hybrid_answer(question, trimmed, raw)
         # Normalize separators.
@@ -235,7 +308,7 @@ class LocalAnswerer:
         return ", ".join(uniq) if uniq else hybrid_answer(question, trimmed, raw)
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=2)
 def get_local_answerer(model_name: str | None = None) -> LocalAnswerer:
-    """Return a cached singleton LocalAnswerer."""
+    """Return a cached LocalAnswerer for *model_name*."""
     return LocalAnswerer(model_name=model_name or env_model_name())
