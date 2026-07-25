@@ -500,6 +500,17 @@ def run_locomo(
             by_cat[cat_name].add(f1, ok, detail)
             overall.add(f1, ok, detail)
             asked += 1
+        # Per-dialog progress so long LLM runs are observable.
+        dialog_elapsed = time.perf_counter() - t0
+        cat_snap = {
+            k: round(v.summary().get("token_f1") or 0.0, 2)
+            for k, v in sorted(by_cat.items())
+        }
+        print(
+            f"[locomo] finished {sample_id} asked={asked} "
+            f"elapsed_s={dialog_elapsed:.1f} by_cat={cat_snap}",
+            flush=True,
+        )
         if max_questions is not None and asked >= max_questions:
             break
 
