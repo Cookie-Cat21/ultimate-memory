@@ -24,7 +24,7 @@ Offline token-F1 vs A-MEM Table 1 (GPT-4o-mini). Mem0/Zep **J** scores need an L
 
 Latest full rebench (inventories + list filters, flan-t5-xl): overall **34.94**, multi **26.6**, open **33.89**.
 
-Full Qwen2.5-3B-Instruct suite: overall **30.54** (single regressed to 31.0 — instruct echoes hurt span QA). Prefer flan-t5-xl for full-suite + person-window / echo-reject fixes (XL11 running).
+Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-window widening regressed single to **25.1** (reverted). Rebench XL13 with intent-gated person window + list-synthesis fix.
 
 ## Dialog-1 (152 Qs) — full A-MEM sweep
 
