@@ -243,6 +243,36 @@ class TestListUnionIntent:
         assert "hobbies:" in inv or "kayaking" in inv
         assert "allergies:" in inv or "dairy" in inv
 
+    def test_places_inventory_rejects_chitchat(self):
+        facts = [
+            "Joanna: Thanks Nate! Appreciate your kind words.",
+            "Joanna visited Woodhaven on a trip to the Midwest last summer.",
+        ]
+        inv = "\n".join(build_speaker_inventories("Joanna", facts))
+        assert "Woodhaven" in inv or "Midwest" in inv
+        assert "Thanks" not in inv
+        assert "Appreciate" not in inv
+
+    def test_both_intersection_topic_specialized(self):
+        texts = [
+            "Nate loves turtles and takes them on walks.",
+            "Joanna thinks turtles are adorable.",
+            'Nate watched "Little Women" and "The Lord of the Rings".',
+            'Joanna also saw "Little Women" and "The Lord of the Rings".',
+            "Nate and Joanna both appreciate the beauty of nature.",
+        ]
+        assert aggregate_answer("What animal do both Nate and Joanna like?", texts) == "Turtles"
+        assert (
+            aggregate_answer(
+                "What do both Joanna and Nate appreciate the beauty of?", texts
+            )
+            == "Nature"
+        )
+        movies = aggregate_answer("What movies have both Joanna and Nate seen?", texts)
+        assert movies
+        assert "Little Women" in movies
+        assert "Lord Of The Rings" in movies or "Lord of the Rings" in movies
+
     def test_filter_list_items_drops_junk(self):
         kept = filter_list_items_for_question(
             "What desserts has Maria made?",

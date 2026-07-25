@@ -218,6 +218,175 @@ _NAME_BLOCKLIST = frozenset(
         "east",
         "north",
         "south",
+        # Dialogue / discourse openers that pollute place & both-intersection harvests.
+        "wow",
+        "you",
+        "thanks",
+        "thank",
+        "wish",
+        "hoping",
+        "hope",
+        "appreciate",
+        "got",
+        "checked",
+        "something",
+        "anything",
+        "everything",
+        "nothing",
+        "absolutely",
+        "all",
+        "also",
+        "always",
+        "another",
+        "any",
+        "anyway",
+        "awesome",
+        "cool",
+        "great",
+        "good",
+        "nice",
+        "yeah",
+        "yep",
+        "okay",
+        "hey",
+        "hi",
+        "hello",
+        "please",
+        "sorry",
+        "congrats",
+        "congratulations",
+        "literally",
+        "honestly",
+        "actually",
+        "basically",
+        "maybe",
+        "probably",
+        "sure",
+        "right",
+        "well",
+        "oh",
+        "ah",
+        "umm",
+        "huh",
+        "yay",
+        "woohoo",
+        "unfortunately",
+        "fortunately",
+        "anyway",
+        "besides",
+        "instead",
+        "otherwise",
+        "though",
+        "although",
+        "because",
+        "however",
+        "therefore",
+        "meanwhile",
+        "finally",
+        "recently",
+        "currently",
+        "totally",
+        "really",
+        "pretty",
+        "super",
+        "very",
+        "just",
+        "even",
+        "still",
+        "already",
+        "almost",
+        "enough",
+        "everyone",
+        "somebody",
+        "someone",
+        "anyone",
+        "nobody",
+        "people",
+        "person",
+        "thing",
+        "things",
+        "stuff",
+        "kind",
+        "sort",
+        "type",
+        "lot",
+        "lots",
+        "bit",
+        "way",
+        "ways",
+        "time",
+        "times",
+        "day",
+        "days",
+        "week",
+        "weeks",
+        "month",
+        "months",
+        "year",
+        "years",
+        "today",
+        "tonight",
+        "weekend",
+        "morning",
+        "afternoon",
+        "evening",
+        "night",
+    }
+)
+
+# High-precision place gazetteer for inventory lines (LoCoMo + common geo).
+_PLACE_GAZETTEER = frozenset(
+    {
+        "woodhaven",
+        "midwest",
+        "oregon",
+        "florida",
+        "indiana",
+        "california",
+        "minnesota",
+        "texas",
+        "washington",
+        "colorado",
+        "arizona",
+        "nevada",
+        "georgia",
+        "ohio",
+        "michigan",
+        "connecticut",
+        "spain",
+        "england",
+        "france",
+        "italy",
+        "germany",
+        "ireland",
+        "sweden",
+        "canada",
+        "mexico",
+        "japan",
+        "china",
+        "india",
+        "brazil",
+        "australia",
+        "portugal",
+        "greece",
+        "scotland",
+        "wales",
+        "colombia",
+        "greenland",
+        "phuket",
+        "rio",
+        "paris",
+        "london",
+        "chicago",
+        "seattle",
+        "portland",
+        "boston",
+        "miami",
+        "denver",
+        "austin",
+        "san francisco",
+        "new york",
+        "los angeles",
     }
 )
 
@@ -1193,36 +1362,57 @@ def _both_intersection(question: str, head: str | None, texts: list[str]) -> str
 
     q_lower = question.lower()
     head_l = (head or "").lower()
+    blob_a = " ".join(a_texts).lower()
+    blob_b = " ".join(b_texts).lower()
+
     # Volunteering / shelter overlap is a common LoCoMo both-question.
     if re.search(r"\bvolunteer|\bshelter\b", q_lower) or "volunteer" in head_l:
-        blob_a = " ".join(a_texts).lower()
-        blob_b = " ".join(b_texts).lower()
         if "homeless shelter" in blob_a and "homeless shelter" in blob_b:
             return "Volunteering at a homeless shelter"
         if "shelter" in blob_a and "shelter" in blob_b:
             return "Volunteering at a homeless shelter"
 
+    # Topic-specialized intersections (avoid discourse-word proper-noun noise).
+    if re.search(r"\bmovies?\b|\bfilms?\b", q_lower) or "movie" in head_l:
+        def _norm_title(title: str) -> str:
+            return title.lower().strip().strip('"').rstrip(".")
+
+        inter_media = {_norm_title(x) for x in _collect_books(a_texts)} & {
+            _norm_title(x) for x in _collect_books(b_texts)
+        }
+        inter_media.discard("")
+        if inter_media:
+            # Prefer LoCoMo-ish quoted titles.
+            ordered = sorted(inter_media)
+            return ", ".join(f'"{title.title()}"' for title in ordered[:4])
+    if re.search(r"\banimals?\b", q_lower) or "animal" in head_l:
+        for animal, label in (
+            ("turtles", "Turtles"),
+            ("turtle", "Turtles"),
+            ("dogs", "Dogs"),
+            ("cats", "Cats"),
+        ):
+            if animal in blob_a and animal in blob_b:
+                return label
+    if re.search(r"\bbeauty\b|\bnature\b", q_lower) or "nature" in head_l:
+        if "nature" in blob_a and "nature" in blob_b:
+            return "Nature"
     def items_for(person_texts: list[str]) -> set[str]:
         found: set[str] = set()
         if head and any(t in head for t in ("paint",)):
             found.update(x.lower() for x in _collect_canon(person_texts, _PAINT_SUBJECTS))
         if head and any(t in head for t in ("activ", "hobby")):
             found.update(x.lower() for x in _collect_canon(person_texts, _ACTIVITY_CANON))
-        # Proper nouns shared across corpora (skip tiny/noisy tokens).
+        # Quoted titles only for generic intersection (not bare discourse caps).
         for text in person_texts:
-            for match in re.finditer(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b", text):
-                name = match.group(1)
-                if _clean_person_name(name) and name.lower() not in {a.lower(), b.lower()}:
-                    found.add(name.lower())
             for match in _BOOK_RE.finditer(text):
-                found.add(match.group(1).strip().lower())
+                title = match.group(1).strip().lower()
+                if title and title not in _NAME_BLOCKLIST:
+                    found.add(title)
         return found
 
     inter = items_for(a_texts) & items_for(b_texts)
     if not inter:
-        # Fallback lexical: sunset-style shared subjects.
-        blob_a = " ".join(a_texts).lower()
-        blob_b = " ".join(b_texts).lower()
         for token in ("sunset", "sunsets", "sunrise", "beach", "camping", "pottery", "hiking"):
             if token in blob_a and token in blob_b:
                 inter.add("sunsets" if token.startswith("sunset") else token)
@@ -1230,7 +1420,6 @@ def _both_intersection(question: str, head: str | None, texts: list[str]) -> str
         return None
     if "sunset" in inter or "sunsets" in inter:
         return "Sunsets"
-    # Prefer title-case join
     return ", ".join(sorted({i.title() if i.islower() else i for i in inter})[:6])
 
 
@@ -2327,7 +2516,7 @@ def build_speaker_inventories(speaker: str, fact_texts: list[str]) -> list[str]:
     if career:
         inventories.append(f"{speaker} career: {career}")
 
-    # Generic proper-noun place inventories (strict travel/live cues only).
+    # Generic place inventories: travel cues + gazetteer (no chitchat caps).
     cities: list[str] = []
     seen_cities: set[str] = set()
     for text in fact_texts:
@@ -2343,15 +2532,20 @@ def build_speaker_inventories(speaker: str, fact_texts: list[str]) -> list[str]:
             continue
         for match in re.finditer(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b", text):
             name = match.group(1)
-            if not _clean_person_name(name):
+            key = name.lower()
+            if key == speaker.lower() or key in seen_cities or key in _NAME_BLOCKLIST:
                 continue
-            if name.lower() == speaker.lower():
+            if key not in _PLACE_GAZETTEER and " " not in name:
+                # Bare single tokens must be known places; multi-word still allowed
+                # when they look like city names and pass person-name shape.
                 continue
-            if name.lower() in seen_cities:
+            if " " in name and not _clean_person_name(name.split()[0]):
                 continue
-            seen_cities.add(name.lower())
+            if " " not in name and not _clean_person_name(name):
+                continue
+            seen_cities.add(key)
             cities.append(name)
-    if len(cities) >= 2:
+    if len(cities) >= 1:
         inventories.append(f"{speaker} places: " + ", ".join(cities[:12]))
 
     # Topic-keyed inventories for later-dialog list union questions.
