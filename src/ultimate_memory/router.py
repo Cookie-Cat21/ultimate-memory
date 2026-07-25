@@ -359,61 +359,19 @@ class MemoryRouter:
 
         rich_contexts = merge_contexts(rich_contexts, [])
 
-        # Pull a wide person-scoped atom window for multi-fact aggregation / list QA.
-        # Keep these out of normal extractive ranking so temporal/single-hop dates
-        # are not drowned by inventory dumps — but DO use them for list/OD LLM paths.
+        # Pull a wide person-scoped atom window ONLY when aggregate intent fires.
+        # Broader "needs_person_window" matching stole single-hop contexts and
+        # crashed full-suite single_hop from ~40 → ~25 F1.
         agg_intent = detect_aggregate_intent(question)
         person_atom_texts: list[str] = []
         inventory_contexts: list[dict] = []
-        person = (agg_intent.person if agg_intent else None) or first_person(question)
-        q_lower_gate = question.lower()
-        needs_person_window = bool(
-            agg_intent
-            or re.search(
-                r"\b(?:what|which|where|who|how many|in what ways)\b.+\b"
-                r"(?:has|have|did|does|do|seen|attended|bought|made|done|been)\b",
-                q_lower_gate,
-            )
-            or re.search(
-                r"\b(?:might|likely|would|could|potentially|nickname|console|holiday|"
-                r"degree|technique|composer|career|attributes?)\b",
-                q_lower_gate,
-            )
-        )
-        if person and needs_person_window:
-            for atom in self.store.search_atoms(person, limit=120):
+        person = agg_intent.person if agg_intent else None
+        if person:
+            for atom in self.store.search_atoms(person, limit=100):
                 if atom.text:
                     person_atom_texts.append(atom.text)
             topic = ((agg_intent.topic if agg_intent else None) or "").strip()
             topic_bits = [t for t in re.findall(r"[a-z]{3,}", topic.lower()) if t][:4]
-            # Also probe question content nouns with the person name.
-            q_bits = [
-                t
-                for t in re.findall(r"[a-z]{4,}", q_lower_gate)
-                if t
-                not in {
-                    "what",
-                    "which",
-                    "where",
-                    "when",
-                    "have",
-                    "has",
-                    "does",
-                    "did",
-                    "with",
-                    "from",
-                    "that",
-                    "this",
-                    "about",
-                    "their",
-                    "been",
-                    "were",
-                    "would",
-                    "could",
-                    "might",
-                    "likely",
-                }
-            ][:6]
             extra_queries = [
                 f"{person} profile",
                 f"{person} activities",
@@ -422,8 +380,6 @@ class MemoryRouter:
                 f"{person} LGBTQ",
                 f"{person} relationship",
                 f"{person} places",
-                f"{person} items",
-                f"{person} hobbies",
                 f"{person} desserts",
                 f"{person} games",
                 f"{person} causes",
@@ -440,12 +396,8 @@ class MemoryRouter:
                 f"{person} video games",
                 f"{person} game platforms",
                 f"{person} friend places",
-                f"{person} counseling",
-                f"{person} concert",
-                f"{person} figurines",
-                f"{person} shoes",
             ]
-            for bit in topic_bits + q_bits:
+            for bit in topic_bits:
                 extra_queries.append(f"{person} {bit}")
             for extra_q in extra_queries:
                 for atom in self.store.search_atoms(extra_q, limit=8):
@@ -672,11 +624,13 @@ class MemoryRouter:
             else:
                 ctx_limit = 22 if (agg_intent and agg_intent.kind in {"hypothetical", "entity_infer"}) else 14
                 context_texts = [str(item.get("text") or "")[:500] for item in ordered[:ctx_limit]]
-                # For open-domain / multi-hop shaped QA, prepend compact person facts.
-                if person_atom_texts and (
-                    (agg_intent and agg_intent.kind in {"hypothetical", "entity_infer", "career", "how_many"})
-                    or needs_person_window
-                ):
+                # Only prepend person facts for OD/inferential aggregate intents.
+                if person_atom_texts and agg_intent and agg_intent.kind in {
+                    "hypothetical",
+                    "entity_infer",
+                    "career",
+                    "how_many",
+                }:
                     pref: list[str] = []
                     seen_p: set[str] = set()
                     for text in person_atom_texts:
