@@ -36,6 +36,7 @@ from .aggregate import (
     aggregate_answer,
     detect_aggregate_intent,
     filter_list_items_for_question,
+    first_person,
     harvest_list_items,
     merge_list_answers,
 )
@@ -358,47 +359,94 @@ class MemoryRouter:
 
         rich_contexts = merge_contexts(rich_contexts, [])
 
-        # Pull a wide person-scoped atom window for multi-fact aggregation only.
-        # Keep these out of normal extractive/LLM ranking so temporal/single-hop
-        # dates are not drowned by inventory dumps.
+        # Pull a wide person-scoped atom window for multi-fact aggregation / list QA.
+        # Keep these out of normal extractive ranking so temporal/single-hop dates
+        # are not drowned by inventory dumps — but DO use them for list/OD LLM paths.
         agg_intent = detect_aggregate_intent(question)
         person_atom_texts: list[str] = []
         inventory_contexts: list[dict] = []
-        if agg_intent and agg_intent.person:
-            for atom in self.store.search_atoms(agg_intent.person, limit=100):
+        person = (agg_intent.person if agg_intent else None) or first_person(question)
+        q_lower_gate = question.lower()
+        needs_person_window = bool(
+            agg_intent
+            or re.search(
+                r"\b(?:what|which|where|who|how many|in what ways)\b.+\b"
+                r"(?:has|have|did|does|do|seen|attended|bought|made|done|been)\b",
+                q_lower_gate,
+            )
+            or re.search(
+                r"\b(?:might|likely|would|could|potentially|nickname|console|holiday|"
+                r"degree|technique|composer|career|attributes?)\b",
+                q_lower_gate,
+            )
+        )
+        if person and needs_person_window:
+            for atom in self.store.search_atoms(person, limit=120):
                 if atom.text:
                     person_atom_texts.append(atom.text)
-            topic = (agg_intent.topic or "").strip()
+            topic = (agg_intent.topic if agg_intent else "").strip()
             topic_bits = [t for t in re.findall(r"[a-z]{3,}", topic.lower()) if t][:4]
+            # Also probe question content nouns with the person name.
+            q_bits = [
+                t
+                for t in re.findall(r"[a-z]{4,}", q_lower_gate)
+                if t
+                not in {
+                    "what",
+                    "which",
+                    "where",
+                    "when",
+                    "have",
+                    "has",
+                    "does",
+                    "did",
+                    "with",
+                    "from",
+                    "that",
+                    "this",
+                    "about",
+                    "their",
+                    "been",
+                    "were",
+                    "would",
+                    "could",
+                    "might",
+                    "likely",
+                }
+            ][:6]
             extra_queries = [
-                f"{agg_intent.person} profile",
-                f"{agg_intent.person} activities",
-                f"{agg_intent.person} books",
-                f"{agg_intent.person} painted",
-                f"{agg_intent.person} LGBTQ",
-                f"{agg_intent.person} relationship",
-                f"{agg_intent.person} places",
-                f"{agg_intent.person} items",
-                f"{agg_intent.person} hobbies",
-                f"{agg_intent.person} desserts",
-                f"{agg_intent.person} games",
-                f"{agg_intent.person} causes",
-                f"{agg_intent.person} shelters",
-                f"{agg_intent.person} dogs",
-                f"{agg_intent.person} children",
-                f"{agg_intent.person} countries",
-                f"{agg_intent.person} states",
-                f"{agg_intent.person} exercises",
-                f"{agg_intent.person} martial arts",
-                f"{agg_intent.person} yoga",
-                f"{agg_intent.person} writing classes",
-                f"{agg_intent.person} board games",
-                f"{agg_intent.person} video games",
-                f"{agg_intent.person} game platforms",
-                f"{agg_intent.person} friend places",
+                f"{person} profile",
+                f"{person} activities",
+                f"{person} books",
+                f"{person} painted",
+                f"{person} LGBTQ",
+                f"{person} relationship",
+                f"{person} places",
+                f"{person} items",
+                f"{person} hobbies",
+                f"{person} desserts",
+                f"{person} games",
+                f"{person} causes",
+                f"{person} shelters",
+                f"{person} dogs",
+                f"{person} children",
+                f"{person} countries",
+                f"{person} states",
+                f"{person} exercises",
+                f"{person} martial arts",
+                f"{person} yoga",
+                f"{person} writing classes",
+                f"{person} board games",
+                f"{person} video games",
+                f"{person} game platforms",
+                f"{person} friend places",
+                f"{person} counseling",
+                f"{person} concert",
+                f"{person} figurines",
+                f"{person} shoes",
             ]
-            for bit in topic_bits:
-                extra_queries.append(f"{agg_intent.person} {bit}")
+            for bit in topic_bits + q_bits:
+                extra_queries.append(f"{person} {bit}")
             for extra_q in extra_queries:
                 for atom in self.store.search_atoms(extra_q, limit=8):
                     if not atom.text:
@@ -622,8 +670,26 @@ class MemoryRouter:
                         list_contexts.append(text.strip())
                 context_texts = list_contexts[:28]
             else:
-                ctx_limit = 22 if (agg_intent and agg_intent.kind == "hypothetical") else 14
+                ctx_limit = 22 if (agg_intent and agg_intent.kind in {"hypothetical", "entity_infer"}) else 14
                 context_texts = [str(item.get("text") or "")[:500] for item in ordered[:ctx_limit]]
+                # For open-domain / multi-hop shaped QA, prepend compact person facts.
+                if person_atom_texts and (
+                    (agg_intent and agg_intent.kind in {"hypothetical", "entity_infer", "career", "how_many"})
+                    or needs_person_window
+                ):
+                    pref: list[str] = []
+                    seen_p: set[str] = set()
+                    for text in person_atom_texts:
+                        if " profile:" in text and len(text) > 300:
+                            continue
+                        key = text.strip().lower()
+                        if not key or key in seen_p:
+                            continue
+                        seen_p.add(key)
+                        pref.append(text.strip()[:420])
+                        if len(pref) >= 12:
+                            break
+                    context_texts = (pref + context_texts)[: max(ctx_limit, 18)]
             try:
                 from .llm_answer import get_local_answerer
 

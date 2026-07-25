@@ -133,6 +133,29 @@ def _prefer_absolute_date(llm_answer: str, contexts: list[str], question: str) -
     return llm_answer
 
 
+def _looks_like_echo_or_meta(answer: str, question: str) -> bool:
+    """True when the model echoed a question / session chitchat instead of answering."""
+    a = answer.strip()
+    if not a:
+        return True
+    if a.endswith("?"):
+        return True
+    lower = a.lower()
+    if re.search(
+        r"\b(?:any fun plans|catch up after|what's up with|tell me more|"
+        r"hope you're|long time)\b",
+        lower,
+    ):
+        return True
+    # Near-duplicate of the question.
+    q_tokens = set(re.findall(r"[a-z0-9]+", question.lower()))
+    a_tokens = set(re.findall(r"[a-z0-9]+", lower))
+    if q_tokens and a_tokens and len(a_tokens & q_tokens) / max(len(a_tokens), 1) > 0.8:
+        if len(a_tokens) <= len(q_tokens) + 2:
+            return True
+    return False
+
+
 def hybrid_answer(question: str, contexts: list[str], llm_answer: str) -> str:
     """Blend local LLM output with extractive spans for LoCoMo F1."""
     llm_answer = _clean_answer(llm_answer or "")
@@ -158,8 +181,12 @@ def hybrid_answer(question: str, contexts: list[str], llm_answer: str) -> str:
         if llm_answer and llm_answer.lower() != "i don't know":
             return _prefer_absolute_date(llm_answer, contexts, question)
 
-    if not llm_answer or llm_answer.lower() == "i don't know":
-        return extractive
+    if (
+        not llm_answer
+        or llm_answer.lower() == "i don't know"
+        or _looks_like_echo_or_meta(llm_answer, question)
+    ):
+        return extractive or llm_answer
 
     upgraded = _prefer_absolute_date(llm_answer, contexts, question)
     # If LLM answer is long/noisy and extractive is a tight entity, prefer extractive.

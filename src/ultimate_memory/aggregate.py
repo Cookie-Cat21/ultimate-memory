@@ -234,6 +234,11 @@ def _clean_person_name(name: str | None) -> str | None:
     return cleaned
 
 
+def first_person(question: str) -> str | None:
+    """Public helper: primary person name from a LoCoMo-style question."""
+    return _first_person(question)
+
+
 def _first_person(question: str) -> str | None:
     """Extract the primary person name from a LoCoMo question (case-sensitive)."""
     patterns = (
