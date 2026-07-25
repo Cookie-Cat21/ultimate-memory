@@ -11,24 +11,25 @@ Offline token-F1 vs A-MEM Table 1 (GPT-4o-mini). Mem0/Zep **J** scores need an L
 | temporal | 12.14 | 9.15 | 5.56 | 5.31 |
 | open_domain | 44.65 | 41.04 | 6.61 | 9.67 |
 
-## Best full LoCoMo-10 (1540 Qs, `google/flan-t5-xl`)
+## Best full LoCoMo-10 (1540 Qs)
 
-| Category | Ours | A-MEM | MemGPT | MemoryBank | ReadAgent |
-|---|---:|---:|---:|---:|---:|
-| single_hop | **39.82** | 27.02 ✓ | 26.65 ✓ | ✓ | ✓ |
-| multi_hop | **27.99** | 45.85 | 25.52 ✓ | ✓ | ✓ |
-| temporal | **33.91** | 12.14 ✓ | 9.15 ✓ | ✓ | ✓ |
-| open_domain | **33.43** | 44.65 | 41.04 | ✓ | ✓ |
+| Category | Ours (best) | Model | A-MEM | MemGPT |
+|---|---:|---|---:|---:|
+| single_hop | **39.82** ✓ | flan-t5-xl | 27.02 | 26.65 |
+| multi_hop | **27.99** | flan-t5-xl | 45.85 | 25.52 ✓ |
+| temporal | **33.91** ✓ | flan-t5-xl | 12.14 | 9.15 |
+| open_domain | **33.89** | flan-t5-xl (+inventories) | 44.65 | 41.04 |
 
-**Scoreboard:** A-MEM **2/4**, MemGPT **3/4**, MemoryBank/ReadAgent **4/4**.
+**Scoreboard vs A-MEM:** **2/4** (single + temporal). MemGPT **3/4**. MemoryBank/ReadAgent **4/4**.
 
-Overall token F1 **36.0** (adversarial skipped).
+Latest full rebench (inventories + list filters, flan-t5-xl): overall **34.94**, multi **26.6**, open **33.89**.
 
 ## Dialog-1 (152 Qs) — full A-MEM sweep
 
 | Model | single | multi | temporal | open |
 |---|---:|---:|---:|---:|
 | `flan-t5-xl` | 34.0 | **69.8** | 25.2 | **96.2** |
+| `Qwen2.5-3B-Instruct` | (running) | | | |
 
 ## Synthetic suite
 
