@@ -195,6 +195,48 @@ class TestListUnionIntent:
         assert intent is not None
         assert intent.kind == "inventory_union"
 
+    def test_what_kind_listish_heads(self):
+        intent = detect_aggregate_intent("What kind of hobbies does Evan pursue?")
+        assert intent is not None
+        assert intent.kind == "inventory_union"
+        intent = detect_aggregate_intent("What kind of writings does Joanna do?")
+        assert intent is not None
+        assert intent.kind == "inventory_union"
+        intent = detect_aggregate_intent("What are some foods that Audrey likes eating?")
+        assert intent is not None
+        assert intent.kind == "inventory_union"
+
+    def test_what_kind_singular_not_list(self):
+        intent = detect_aggregate_intent("What kind of flooring is Jon looking for in his dance studio?")
+        assert intent is None or intent.kind != "inventory_union"
+        intent = detect_aggregate_intent("What kind of tattoo does Audrey have on her arm?")
+        assert intent is None or intent.kind != "inventory_union"
+
+    def test_what_has_cooked_list(self):
+        intent = detect_aggregate_intent("What has John cooked?")
+        assert intent is not None
+        assert intent.kind == "inventory_union"
+
+    def test_geo_entity_infer(self):
+        intent = detect_aggregate_intent("What state did Joanna visit in summer 2021?")
+        assert intent is not None
+        assert intent.kind == "entity_infer"
+
+    def test_food_hobby_inventories(self):
+        facts = [
+            "Audrey likes eating chicken pot pie, blueberry muffins, and sushi.",
+            "Evan pursues painting, hiking, reading books, and kayaking.",
+            "Joanna is allergic to dairy and cockroaches.",
+        ]
+        inv = "\n".join(
+            build_speaker_inventories("Audrey", facts)
+            + build_speaker_inventories("Evan", facts)
+            + build_speaker_inventories("Joanna", facts)
+        ).lower()
+        assert "foods:" in inv or "chicken" in inv
+        assert "hobbies:" in inv or "kayaking" in inv
+        assert "allergies:" in inv or "dairy" in inv
+
     def test_filter_list_items_drops_junk(self):
         kept = filter_list_items_for_question(
             "What desserts has Maria made?",

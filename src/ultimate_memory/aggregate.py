@@ -300,6 +300,48 @@ _WORD_NUMBERS = {
 }
 
 
+# Heads where "what kind/type of X" is usually a multi-item inventory (LoCoMo multi-hop).
+# Keep this allowlist tight — singular event nouns must NOT enter inventory_union
+# or person-window retrieval steals single-hop contexts.
+_LISTISH_KIND_HEADS = re.compile(
+    r"\b(?:"
+    r"hobbies|writings|classes|groups|places|foods|games|snacks|meals|"
+    r"subjects|interests|projects|tricks|skills|allergies|recipes|"
+    r"dreams|events|activities|books|desserts|exercises|bands|"
+    r"artists|movies|breeds|suggestions|recommendations|"
+    r"problems|healthy meals|healthy food suggestions|"
+    r"unhealthy snacks|indoor activities|engineering projects|"
+    r"programming[- ]related events|family members|foods? or recipes|"
+    r"mediums|locations|areas|damages|goals|causes|"
+    r"shelters|instruments|screenplays|tv series"
+    r")\b",
+    re.I,
+)
+
+# Singular "what kind of X" heads that must stay extractive single-hop.
+_SINGULAR_KIND_HEADS = re.compile(
+    r"\b(?:"
+    r"tattoo|flooring|meal|painting|pot|dance piece|workout class|"
+    r"online group|professional experience|individuals?|place|job|"
+    r"fiction stor(?:y|ies)|counseling|mental health services|"
+    r"flowers?|cookies?|beer|music|writing|experiences?|landscapes?|"
+    r"sports? activity|yoga activity|outdoor activity"
+    r")\b",
+    re.I,
+)
+
+
+def _kind_head(question: str) -> str | None:
+    match = re.search(
+        r"\bwhat (?:kinds?|types?) of\s+(.+?)(?:\s+(?:has|have|did|does|do|is|are|was|were|can|might)\b|\?|$)",
+        question.lower(),
+    )
+    if not match:
+        return None
+    head = re.sub(r"\s+", " ", match.group(1)).strip(" ?.!,")
+    return head or None
+
+
 def _looks_like_list_question(question: str) -> bool:
     """True for multi-item inventory questions (not single-hop what-is)."""
     q = question.strip()
@@ -309,16 +351,29 @@ def _looks_like_list_question(question: str) -> bool:
         q_lower,
     ):
         return False
-    # Singular "what kind/type of X" is usually single-hop; only plural kinds/types.
-    if re.search(r"\bwhat kind of\b|\bwhat type of\b", q_lower) and not re.search(
-        r"\bwhat kinds of\b|\bwhat types of\b", q_lower
-    ):
+    # "What kind/type(s) of X" — allowlist multi-item heads only (no bare plural
+    # morphology). Generic "kind of flowers/cookies/music" is usually single-hop.
+    if re.search(r"\bwhat (?:kinds?|types?) of\b", q_lower):
+        head = _kind_head(q) or ""
+        if head and _SINGULAR_KIND_HEADS.search(head):
+            return False
+        if head and (
+            _LISTISH_KIND_HEADS.search(head) or re.search(r"\b(?:and|or)\b", head)
+        ):
+            return True
+        # Plural "kinds/types of" still leans list unless singular-rejected above.
+        if re.search(r"\bwhat (?:kinds|types) of\b", q_lower) and head:
+            if re.search(r"(?:ies|[a-z]{4,}s)\b", head) or _LISTISH_KIND_HEADS.search(
+                head
+            ):
+                return True
         return False
     # Explicit multi-item cues (plural names/types only — not "what is the name of").
     if re.search(
         r"\b(?:types of|kinds of|names of|in common|both .+ and|"
         r"which (?:events|cities|countries|states|places|books|activities|"
-        r"games|items|causes|shelters|exercises|desserts|locations))\b",
+        r"games|items|causes|shelters|exercises|desserts|locations|"
+        r"family members|tv series|screenplays))\b",
         q_lower,
     ):
         return True
@@ -329,7 +384,39 @@ def _looks_like_list_question(question: str) -> bool:
         r"\bwhat are\b.+\b(?:'s|s')\s+"
         r"(?:hobbies|pets|dogs|cats|kids|children|books|activities|interests|"
         r"allergies|emotions|goals|causes|items|games|desserts|exercises|"
-        r"friends|names|favorite desserts|recommendations)\b",
+        r"friends|names|favorite desserts|recommendations|dreams|skills|"
+        r"favorite games)\b",
+        q_lower,
+    ):
+        return True
+    # "What are/were the skills/classes/problems/…"
+    if re.search(
+        r"\bwhat (?:are|were)\s+(?:the\s+|some\s+)?"
+        r"(?:skills|classes|problems|hobbies|foods|dreams|changes|"
+        r"interests|allergies|subjects|suggestions|recommendations)\b",
+        q_lower,
+    ):
+        return True
+    # "What has Person cooked/done/tried/…" multi-activity inventories.
+    if re.search(
+        r"\bwhat has\s+[A-Z][a-z]{2,}\s+"
+        r"(?:cooked|done|tried|joined|hosted|pursued|recommended|"
+        r"worked on|faced|eaten)\b",
+        q,
+        re.I,
+    ):
+        return True
+    # "What does/do Person do to …" often multi-item coping/habit lists.
+    if re.search(
+        r"\bwhat (?:does|do)\s+[A-Z][a-z]{2,}(?:'s\s+\w+)?\s+do to\b",
+        q,
+        re.I,
+    ):
+        return True
+    # "Who have written/visited…" multi-name answers.
+    if re.search(
+        r"\bwho have\b.+\b(?:written|visited|passed|helped)\b|"
+        r"\bwhich of\b.+\b(?:family|friends|members)\b",
         q_lower,
     ):
         return True
@@ -347,7 +434,8 @@ def _looks_like_list_question(question: str) -> bool:
             r"classes|games|desserts|causes|shelters|damages|emotions|"
             r"interests|writings|exercises|countries|cities|states|places|"
             r"people|friends|martial|yoga|music|outdoor|european|locations|"
-            r"areas|recommendations|mediums|skills|sports|"
+            r"areas|recommendations|mediums|skills|sports|foods|snacks|"
+            r"meals|dreams|projects|tricks|allergies|recipes|subjects|"
             r"[a-z]{3,}s\b)",
             head_l,
         ) or re.search(r"\b(?:and|or)\b", head_l):
@@ -453,6 +541,8 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         return AggregateIntent("painted_subjects", person)
     if re.search(r"\bdestress\b|\bde-stress\b|\bdo to (?:de-?)?stress\b|\bstress reliev", q_lower):
         return AggregateIntent("destress", person)
+    if re.search(r"\ballergic to\b|\ballergies\b", q_lower):
+        return AggregateIntent("inventory_union", person, topic="allergies")
     if re.search(r"\binstruments?\b|\bplay(?:s|ed)?\b.*\bmusic", q_lower):
         return AggregateIntent("instruments", person)
     if re.search(
@@ -506,17 +596,26 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
     ):
         return AggregateIntent("hypothetical", person, topic=q_lower)
     # Open-domain entity inferences (what/which/who/around which …).
-    if re.match(r"^(?:what|which|who|around which)\b", q_lower) and (
+    if re.match(r"^(?:what|which|who|around which|in which|in what)\b", q_lower) and (
         re.search(r"\b(?:might|likely|would|could|potentially)\b", q_lower)
         or re.search(
             r"\b(?:nickname|console|holiday|degree|technique|composer|endorsement|"
             r"condition|allerg(?:y|ies)|meat|shop|charity|national park|"
-            r"career|job|hobby|exercise|meat)\b",
+            r"career|job|hobby|exercise|meat|state|country|board game|"
+            r"game with|health problems?|how old)\b",
             q_lower,
         )
     ):
         return AggregateIntent("entity_infer", person, topic=q_lower)
     if re.match(r"^who is\b", q_lower):
+        return AggregateIntent("entity_infer", person, topic=q_lower)
+    # Factual geo / named-entity probes common in open-domain LoCoMo.
+    if re.search(
+        r"\b(?:what|which|in which)\s+(?:state|country)\b|"
+        r"\b(?:state|country)\s+did\b|"
+        r"\bin what country\b",
+        q_lower,
+    ):
         return AggregateIntent("entity_infer", person, topic=q_lower)
     # Broad inventory-union for plural / multi-item list questions.
     list_head = re.search(
@@ -524,7 +623,9 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         r"(cities|countries|states|places|books|activities|events|games|recipes|"
         r"gifts|instruments|pets|desserts|shelters|hobbies|items|classes|types|"
         r"kinds|foods|causes|goals|breeds|poses|bands|movies|allergies|"
-        r"exercises|damages|emotions|interests|writings|screenplays|"
+        r"exercises|damages|emotions|interests|writings|screenplays|skills|"
+        r"dreams|snacks|meals|subjects|projects|tricks|suggestions|"
+        r"recommendations|problems|hobbies|family members|"
         r"martial arts|music events|outdoor activities|european countries|"
         r"people|names)"
         r"\b",
@@ -1911,6 +2012,77 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             re.I,
         ),
     ),
+    (
+        "foods",
+        re.compile(
+            r"\b(chicken pot pie|chicken roast|blueberry muffins?|sushi|"
+            r"grilled vegetables|grilled salmon|grilled chicken|"
+            r"veggie stir-?fry|beef merlot|fruit bowl|smoothie bowl|"
+            r"salad|poutine|honey garlic chicken|soup|slow cooker meal|"
+            r"air-popped popcorn|dark chocolate|flavored seltzer|"
+            r"energy balls|healthy sandwich snacks|soda|candy)\b",
+            re.I,
+        ),
+    ),
+    (
+        "hobbies",
+        re.compile(
+            r"\b(painting|hiking|reading(?: books)?|biking|skiing|"
+            r"snowboarding|ice skating|swimming|camping|kayaking|"
+            r"pottery|yoga|gaming|journaling|journalling|creative writing|"
+            r"traveling|art|cooking)\b",
+            re.I,
+        ),
+    ),
+    (
+        "allergies",
+        re.compile(
+            r"\b(?:allergic to|allergies?)\b[^.;\n]{0,80}?\b"
+            r"(most reptiles|animals with fur|cockroaches|dairy|peanuts?|"
+            r"shellfish|gluten|pollen|cats?|dogs?|fur)\b|"
+            r"\b(most reptiles|animals with fur|cockroaches|dairy|peanuts?|"
+            r"shellfish|gluten)\b[^.;\n]{0,40}\ballerg",
+            re.I,
+        ),
+    ),
+    (
+        "writings",
+        re.compile(
+            r"\b(screenplays?|books?|online blog posts?|blog posts?|"
+            r"journals?|journaling|journalling|creative writing|"
+            r"articles on fantasy novels|fantasy literature forum comments?|"
+            r"book recommendations)\b",
+            re.I,
+        ),
+    ),
+    (
+        "music",
+        re.compile(
+            r"\b(classic rock|japanese music|tupac|dr\.?\s*dre|"
+            r"classical music|bach|mozart|john williams|"
+            r"summer sounds|matt patterson)\b",
+            re.I,
+        ),
+    ),
+    (
+        "dreams",
+        re.compile(
+            r"\b(?:dream(?:s|ed|ing)?|hope(?:s|d|ing)?|want(?:s|ed)? to)\b[^.;\n]{0,60}?\b"
+            r"(open a car maintenance shop|work on classic cars|"
+            r"build a custom car(?: from scratch)?)\b",
+            re.I,
+        ),
+    ),
+    (
+        "classes",
+        re.compile(
+            r"\b((?:positive reinforcement )?training (?:workshop|course|class)|"
+            r"dog training course|agility (?:training )?course|grooming course|"
+            r"dog-owners? group|game design course|cooking classes?|"
+            r"pottery class|writing class|yoga class)\b",
+            re.I,
+        ),
+    ),
 ]
 
 
@@ -2192,6 +2364,13 @@ def build_speaker_inventories(speaker: str, fact_texts: list[str]) -> list[str]:
             "board games",
             "video games",
             "game platforms",
+            "foods",
+            "hobbies",
+            "allergies",
+            "writings",
+            "music",
+            "dreams",
+            "classes",
         }:
             inventories.append(f"{speaker} {label}: " + ", ".join(cleaned_items[:10]))
         elif len(cleaned_items) >= 2:

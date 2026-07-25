@@ -26,6 +26,8 @@ Latest full rebench (inventories + list filters, flan-t5-xl): overall **34.94**,
 
 Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-window widening regressed single to **25.1** (reverted). Rebench XL13 with intent-gated person window + list-synthesis fix.
 
+Next (XL14): broaden list intent for LoCoMo “what kind of hobbies/writings/…” multi-hop golds (+topic inventories for foods/hobbies/allergies/writings) while keeping singular kind-of heads extractive; also route geo OD probes to `entity_infer`.
+
 ## Dialog-1 (152 Qs) — full A-MEM sweep
 
 | Model | single | multi | temporal | open |

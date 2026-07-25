@@ -36,8 +36,6 @@ from .aggregate import (
     aggregate_answer,
     detect_aggregate_intent,
     filter_list_items_for_question,
-    first_person,
-    harvest_list_items,
     merge_list_answers,
 )
 from .answer import f1_ready_text, synthesize_answer
@@ -435,6 +433,13 @@ class MemoryRouter:
                             " video games:",
                             " game platforms:",
                             " friend places:",
+                            " foods:",
+                            " hobbies:",
+                            " allergies:",
+                            " writings:",
+                            " music:",
+                            " dreams:",
+                            " classes:",
                         )
                     ):
                         inventory_contexts.append(
@@ -575,6 +580,13 @@ class MemoryRouter:
                 " video games:",
                 " game platforms:",
                 " friend places:",
+                " foods:",
+                " hobbies:",
+                " allergies:",
+                " writings:",
+                " music:",
+                " dreams:",
+                " classes:",
             )
         )
         should_list_answer = bool(
@@ -719,6 +731,13 @@ class MemoryRouter:
                                 "children",
                                 "activities",
                                 "books",
+                                "foods",
+                                "hobbies",
+                                "allergies",
+                                "writings",
+                                "music",
+                                "dreams",
+                                "classes",
                             )
                             if term in head_l or any(t in term for t in head_terms)
                         ):
