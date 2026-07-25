@@ -589,13 +589,25 @@ class MemoryRouter:
                 " classes:",
             )
         )
+        # Require a real list signal. Bare ">=2 person atoms" previously forced the
+        # list LLM on weak inventory_union matches and tanked later-dialog multi/open
+        # (XL14: multi 27.3→25.8, open 34.8→32.5).
+        strong_list_shape = bool(
+            re.search(
+                r"\b(?:kinds? of|types? of|names of|what are some|"
+                r"in common|favorite (?:games|desserts|books)|"
+                r"what (?:are|were)\b.+\b(?:hobbies|allergies|writings|skills|"
+                r"dreams|foods|games)\b)",
+                question.lower(),
+            )
+        )
         should_list_answer = bool(
             agg_intent
             and agg_intent.kind == "inventory_union"
             and (
                 (aggregated and ("," in aggregated or " and " in aggregated.lower()))
                 or inventory_evidence
-                or len(person_atom_texts) >= 2
+                or strong_list_shape
             )
         )
 

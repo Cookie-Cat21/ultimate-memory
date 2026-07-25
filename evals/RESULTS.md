@@ -28,7 +28,9 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL13** (post-revert baseline, flan-t5-xl): overall **34.71**, single **37.95** ✓, multi **27.31**, temporal **32.70** ✓, open **34.79**. Scoreboard vs A-MEM **2/4**; vs MemGPT **3/4**.
 
-**XL14** (running): list-intent widen + topic inventories + geo `entity_infer` — chase multi >45.85 and open >44.65.
+**XL14** (list-intent widen): overall **34.08** — multi **25.77** / open **32.47** regressed (weak inventory_union → noisy list LLM). Reverted that gate.
+
+**XL15**: keep gazetteer places + specialized both-intersection; require strong list signal before list LLM; rebench full suite.
 
 ## Dialog-1 (152 Qs) — full A-MEM sweep
 
