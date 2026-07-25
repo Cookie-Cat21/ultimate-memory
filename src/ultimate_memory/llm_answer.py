@@ -143,7 +143,8 @@ def _looks_like_echo_or_meta(answer: str, question: str) -> bool:
     lower = a.lower()
     if re.search(
         r"\b(?:any fun plans|catch up after|what's up with|tell me more|"
-        r"hope you're|long time)\b",
+        r"hope you're|long time|that's gorgeous|got any other|"
+        r"nice to hear|great to hear|what's been up)\b",
         lower,
     ):
         return True
