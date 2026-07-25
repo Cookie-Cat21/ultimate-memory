@@ -18,15 +18,17 @@ Offline token-F1 vs A-MEM Table 1 (GPT-4o-mini). Mem0/Zep **J** scores need an L
 | single_hop | **39.82** ✓ | flan-t5-xl | 27.02 | 26.65 |
 | multi_hop | **27.99** | flan-t5-xl | 45.85 | 25.52 ✓ |
 | temporal | **33.91** ✓ | flan-t5-xl | 12.14 | 9.15 |
-| open_domain | **33.89** | flan-t5-xl (+inventories) | 44.65 | 41.04 |
+| open_domain | **34.79** | flan-t5-xl (XL13) | 44.65 | 41.04 |
 
 **Scoreboard vs A-MEM:** **2/4** (single + temporal). MemGPT **3/4**. MemoryBank/ReadAgent **4/4**.
 
-Latest full rebench (inventories + list filters, flan-t5-xl): overall **34.94**, multi **26.6**, open **33.89**.
+XL13 full rebench (intent-gated person window): overall **34.71**, multi **27.31**, open **34.79**, single **37.95**.
 
-Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-window widening regressed single to **25.1** (reverted). Rebench XL13 with intent-gated person window + list-synthesis fix.
+Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-window widening regressed single to **25.1** (reverted).
 
-Next (XL14): broaden list intent for LoCoMo “what kind of hobbies/writings/…” multi-hop golds (+topic inventories for foods/hobbies/allergies/writings) while keeping singular kind-of heads extractive; also route geo OD probes to `entity_infer`.
+**XL13** (post-revert baseline, flan-t5-xl): overall **34.71**, single **37.95** ✓, multi **27.31**, temporal **32.70** ✓, open **34.79**. Scoreboard vs A-MEM **2/4**; vs MemGPT **3/4**.
+
+**XL14** (running): list-intent widen + topic inventories + geo `entity_infer` — chase multi >45.85 and open >44.65.
 
 ## Dialog-1 (152 Qs) — full A-MEM sweep
 
