@@ -205,6 +205,12 @@ class TestListUnionIntent:
         intent = detect_aggregate_intent("What are some foods that Audrey likes eating?")
         assert intent is not None
         assert intent.kind == "inventory_union"
+        intent = detect_aggregate_intent("What kind of music does Dave listen to?")
+        assert intent is not None
+        assert intent.kind == "inventory_union"
+        intent = detect_aggregate_intent("What were Deborah's mother's hobbies?")
+        assert intent is not None
+        assert intent.kind == "inventory_union"
 
     def test_what_kind_singular_not_list(self):
         intent = detect_aggregate_intent("What kind of flooring is Jon looking for in his dance studio?")

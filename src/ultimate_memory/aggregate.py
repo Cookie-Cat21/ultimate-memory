@@ -355,6 +355,13 @@ def _looks_like_list_question(question: str) -> bool:
     # morphology). Generic "kind of flowers/cookies/music" is usually single-hop.
     if re.search(r"\bwhat (?:kinds?|types?) of\b", q_lower):
         head = _kind_head(q) or ""
+        # Multi-consume kind-of music/beer/writing → list (LoCoMo multi-hop).
+        if re.search(
+            r"\bwhat kind of (?:music|beer|writing)\b.+\b"
+            r"(?:listen|serve|relax|cope|do to)\b",
+            q_lower,
+        ):
+            return True
         if head and _SINGULAR_KIND_HEADS.search(head):
             return False
         if head and (
@@ -377,15 +384,15 @@ def _looks_like_list_question(question: str) -> bool:
         q_lower,
     ):
         return True
-    # "What are X's hobbies/dogs' names/…" — only clear multi-item possessives.
-    if re.search(r"\bwhat are the names of\b", q_lower):
+    # "What are/were X's hobbies/dogs' names/…" — only clear multi-item possessives.
+    if re.search(r"\bwhat (?:are|were) the names of\b", q_lower):
         return True
     if re.search(
-        r"\bwhat are\b.+\b(?:'s|s')\s+"
+        r"\bwhat (?:are|were)\b.+\b"
         r"(?:hobbies|pets|dogs|cats|kids|children|books|activities|interests|"
         r"allergies|emotions|goals|causes|items|games|desserts|exercises|"
         r"friends|names|favorite desserts|recommendations|dreams|skills|"
-        r"favorite games)\b",
+        r"favorite games|mother's hobbies)\b",
         q_lower,
     ):
         return True
@@ -396,6 +403,16 @@ def _looks_like_list_question(question: str) -> bool:
         r"interests|allergies|subjects|suggestions|recommendations)\b",
         q_lower,
     ):
+        return True
+    # "What helped/motivates X …" multi-factor answers.
+    if re.search(
+        r"\bwhat (?:helped|motivates?|inspire[sd]?)\b.+\b"
+        r"(?:peace|health|grieving|take care|passion)\b",
+        q_lower,
+    ):
+        return True
+    # "Who did X tell …" multi-name answers.
+    if re.search(r"\bwho did\b.+\btell\b", q_lower):
         return True
     # "What has Person cooked/done/tried/…" multi-activity inventories.
     if re.search(
