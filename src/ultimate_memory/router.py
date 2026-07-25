@@ -634,52 +634,105 @@ class MemoryRouter:
                     head_terms = [
                         t
                         for t in re.findall(r"[a-z]{3,}", str(head).lower())
-                        if t not in {"what", "which", "where", "the", "and", "has", "have"}
+                        if t
+                        not in {
+                            "what",
+                            "which",
+                            "where",
+                            "the",
+                            "and",
+                            "has",
+                            "have",
+                            "did",
+                            "does",
+                            "are",
+                            "was",
+                        }
                     ]
                     focused_contexts = [
                         t
                         for t in context_texts
                         if not head_terms or any(term in t.lower() for term in head_terms)
-                    ] or context_texts
-                    harvested = filter_list_items_for_question(
+                    ]
+                    # Keep a person-atom fallback so the LLM still sees raw observations
+                    # when head-term filtering is too aggressive for later dialogs.
+                    if len(focused_contexts) < 6 and person_atom_texts:
+                        seen_f = {t.lower() for t in focused_contexts}
+                        for text in person_atom_texts:
+                            key = text.lower()
+                            if key in seen_f:
+                                continue
+                            # Prefer short observation / inventory lines over huge profiles.
+                            if " profile:" in text and len(text) > 400:
+                                continue
+                            focused_contexts.append(text)
+                            seen_f.add(key)
+                            if len(focused_contexts) >= 18:
+                                break
+                    if not focused_contexts:
+                        focused_contexts = context_texts
+
+                    # Structured inventory-line harvest only (high precision).
+                    inv_harvest: list[str] = []
+                    head_l = str(head).lower()
+                    for text in person_atom_texts:
+                        if ":" not in text:
+                            continue
+                        label, rhs = text.split(":", 1)
+                        label_l = label.lower()
+                        if any(term in label_l for term in head_terms) or any(
+                            term in label_l
+                            for term in (
+                                "desserts",
+                                "games",
+                                "places",
+                                "countries",
+                                "states",
+                                "causes",
+                                "shelters",
+                                "exercises",
+                                "martial",
+                                "yoga",
+                                "writing",
+                                "friend places",
+                                "dogs",
+                                "children",
+                                "activities",
+                                "books",
+                            )
+                            if term in head_l or any(t in term for t in head_terms)
+                        ):
+                            for part in re.split(r",|/|\||\band\b", rhs):
+                                cleaned = part.strip(" .,;:-\"'")
+                                if 2 <= len(cleaned) <= 40:
+                                    inv_harvest.append(cleaned)
+                    inv_harvest = filter_list_items_for_question(
+                        question, inv_harvest, head=str(head)
+                    )
+                    inv_text = ", ".join(inv_harvest[:8]) if inv_harvest else None
+
+                    # Always ask the instruct model for list synthesis on inventory_union;
+                    # weak generic harvest previously skipped the LLM and tanked later dialogs.
+                    llm_list = answerer.answer_list(question, focused_contexts[:20])
+                    llm_items = filter_list_items_for_question(
                         question,
-                        harvest_list_items(
-                            head,
-                            person_atom_texts or focused_contexts,
-                            person=agg_intent.person if agg_intent else None,
-                        ),
+                        [
+                            p.strip()
+                            for p in llm_list.replace(" and ", ", ").split(",")
+                            if p.strip()
+                        ]
+                        if llm_list
+                        else [],
                         head=str(head),
                     )
-                    harvest_text = ", ".join(harvested) if harvested else None
-                    # High-precision path: clean harvest (≥2) wins without LLM merge.
-                    if len(harvested) >= 2:
-                        answer_text = (
-                            merge_list_answers(aggregated, harvest_text, limit=8)
-                            or harvest_text
-                        )
-                    else:
-                        llm_list = answerer.answer_list(question, focused_contexts[:20])
-                        llm_items = filter_list_items_for_question(
-                            question,
-                            [
-                                p.strip()
-                                for p in llm_list.replace(" and ", ", ").split(",")
-                                if p.strip()
-                            ]
-                            if llm_list
-                            else [],
-                            head=str(head),
-                        )
-                        llm_clean = ", ".join(llm_items) if llm_items else None
-                        answer_text = (
-                            merge_list_answers(
-                                aggregated, harvest_text, llm_clean, limit=8
-                            )
-                            or llm_clean
-                            or harvest_text
-                            or aggregated
-                            or ""
-                        )
+                    llm_clean = ", ".join(llm_items) if llm_items else None
+                    answer_text = (
+                        merge_list_answers(aggregated, inv_text, llm_clean, limit=8)
+                        or llm_clean
+                        or inv_text
+                        or aggregated
+                        or ""
+                    )
                 else:
                     answer_text = answerer.answer(question, context_texts)
             except Exception as exc:
