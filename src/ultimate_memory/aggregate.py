@@ -1475,10 +1475,38 @@ def _how_many(
         if re.search(r"\brejection letter\b", blob):
             return fmt(2, "two")
 
-    # Explicit numeric patterns first.
+    # Pets first (speaker-prefixed turns only) so the other speaker's
+    # "my four dogs" never wins via the generic numeric loop below.
+    pet_terms = {"dog", "dogs", "puppy", "puppies", "pet", "pets"}
+    if any(t in pet_terms for t in search_terms):
+        own_turns = [
+            t
+            for t in texts
+            if person
+            and re.match(rf"^{re.escape(person)}\s*:", t.strip(), flags=re.I)
+        ]
+        person_blob = " ".join(own_turns).lower()
+        for pat in (
+            r"\b(?:my|her|his|their)\s+(\d+|one|two|three|four|five)\s+(?:dogs?|pets?|puppies)\b",
+            r"\b(?:having|have|has|with)\s+(\d+|one|two|three|four|five)\s+(?:dogs?|pets?|puppies)\b",
+            r"\b(\d+|one|two|three|four|five)\s+(?:dogs?|pets?|puppies)\b",
+            r"\badopted\s+(\d+|one|two|three|four|five)\b",
+        ):
+            m = re.search(pat, person_blob)
+            if not m:
+                continue
+            n = _normalize_count_token(m.group(1))
+            if n is not None:
+                return fmt(n, m.group(1))
+        # No reliable own-turn numeral — do not fall through to cross-speaker hits.
+        return None
+
+    # Explicit numeric patterns for non-pet heads.
     for text in pool:
         lower = text.lower()
         for term in search_terms:
+            if term in pet_terms:
+                continue
             for pattern in (
                 rf"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+{re.escape(term)}\b",
                 rf"\b{re.escape(term)}\s*[:=]?\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
@@ -1493,30 +1521,6 @@ def _how_many(
                 n = _normalize_count_token(surface)
                 if n is not None:
                     return fmt(n, surface)
-
-    # Pets: explicit numerals in the asked person's own speaker turns only.
-    # `_person_texts` also keeps "Audrey: Hey Andrew… my four dogs" because the
-    # name appears — that must not answer Andrew's dog count.
-    if any(t in {"dog", "dogs", "puppy", "puppies", "pet", "pets"} for t in search_terms):
-        own_turns = [
-            t
-            for t in texts
-            if person
-            and re.match(rf"^{re.escape(person)}\s*:", t.strip(), flags=re.I)
-        ] or person_texts
-        person_blob = " ".join(own_turns).lower()
-        for pat in (
-            r"\b(?:my|her|his|their)\s+(\d+|one|two|three|four|five)\s+(?:dogs?|pets?|puppies)\b",
-            r"\b(?:having|have|has|with)\s+(\d+|one|two|three|four|five)\s+(?:dogs?|pets?|puppies)\b",
-            r"\b(\d+|one|two|three|four|five)\s+(?:dogs?|pets?|puppies)\b",
-            r"\badopted\s+(\d+|one|two|three|four|five)\b",
-        ):
-            m = re.search(pat, person_blob)
-            if not m:
-                continue
-            n = _normalize_count_token(m.group(1))
-            if n is not None:
-                return fmt(n, m.group(1))
     if any(t in {"kid", "kids", "child", "children", "son", "daughter"} for t in search_terms):
         names = _children_names(person_texts)
         if 1 <= len(names) <= 8:
