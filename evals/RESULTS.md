@@ -34,7 +34,7 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL16**: aborted early (still on conv-26) to pick up late-dialog fixes.
 
-**XL17**: overall **34.98** (best overall), single **38.59** ✓, multi **28.01** (new best; still < A-MEM), temporal **32.91** ✓, open **30.81** (regressed). Cause: loose entity_infer catalog fallback preferred over LLM. Fixed for XL18 (tight topic overlap, no hits[0] fallback, entity_infer not always-prefer).
+**XL17**: overall **34.98** (best overall), single **38.59** ✓, multi **28.01** (new best; still < A-MEM), temporal **32.91** ✓, open **30.81** (regressed). Cause: loose entity_infer catalog fallback preferred over LLM. Fixed for XL18 (tight topic overlap, no hits[0] fallback, entity_infer not always-prefer). **XL18** (running): entity_infer precision + specialized collectors before entity/list intents.
 
 ## Dialog-1 (152 Qs) — full A-MEM sweep
 
