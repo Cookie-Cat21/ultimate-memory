@@ -852,13 +852,36 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         q_lower,
     ):
         return AggregateIntent("hypothetical", person, topic=q_lower)
+    # High-precision specialized collectors MUST win before broad entity/list
+    # matchers. Otherwise "career path" → entity_infer and "artists/bands seen"
+    # / "items bought" / "transgender events" collapse into inventory_union.
+    if re.search(r"\bcareer path\b|\bdecided to (?:pursue|persue)\b", q_lower):
+        return AggregateIntent("career", person)
+    if re.search(r"\bidentity\b", q_lower):
+        return AggregateIntent("identity", person)
+    if re.search(r"\bsymbols?\b", q_lower):
+        return AggregateIntent("symbols", person)
+    if re.search(r"\btransgender-specific events\b|\btransgender.*events\b", q_lower):
+        return AggregateIntent("trans_events", person)
+    if re.search(r"\bbought\b|\bpurchased\b", q_lower):
+        return AggregateIntent("bought_items", person)
+    if re.search(r"\bhikes?\b.*\bfamily\b|\bfamily on hikes\b", q_lower):
+        return AggregateIntent("hike_family", person)
+    if re.search(r"\bmusical artists?\b|\bbands?\b.*\bseen\b|\bseen\b.*\bbands?\b", q_lower):
+        return AggregateIntent("artists_seen", person)
+    if re.search(r"\bchanges?\b.*\btransition\b|\btransition journey\b", q_lower):
+        return AggregateIntent("transition_changes", person)
+    if re.search(r"\bwho supports\b|\bsupports .+ when\b", q_lower):
+        return AggregateIntent("supporters", person)
+    if re.search(r"\bkind of art\b|\bwhat art\b", q_lower):
+        return AggregateIntent("art_kind", person)
     # Open-domain entity inferences (what/which/who/around which …).
     if re.match(r"^(?:what|which|who|around which|in which|in what)\b", q_lower) and (
         re.search(r"\b(?:might|likely|would|could|potentially)\b", q_lower)
         or re.search(
             r"\b(?:nickname|console|holiday|degree|technique|composer|endorsement|"
             r"condition|allerg(?:y|ies)|meat|shop|national park|"
-            r"career path|hobby|board game|"
+            r"hobby|board game|"
             r"game with|health problems?|how old|card game|"
             r"charity organization)\b",
             q_lower,
@@ -923,26 +946,6 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         return AggregateIntent("hypothetical", person, topic=q_lower)
     if re.search(r"\bwould\b", q_lower) and not re.match(r"^(?:what|which|who|where|when|how)\b", q_lower):
         return AggregateIntent("hypothetical", person, topic=q_lower)
-    if re.search(r"\bcareer path\b|\bdecided to (?:pursue|persue)\b", q_lower):
-        return AggregateIntent("career", person)
-    if re.search(r"\bidentity\b", q_lower):
-        return AggregateIntent("identity", person)
-    if re.search(r"\bsymbols?\b", q_lower):
-        return AggregateIntent("symbols", person)
-    if re.search(r"\btransgender-specific events\b|\btransgender.*events\b", q_lower):
-        return AggregateIntent("trans_events", person)
-    if re.search(r"\bbought\b|\bpurchased\b", q_lower):
-        return AggregateIntent("bought_items", person)
-    if re.search(r"\bhikes?\b.*\bfamily\b|\bfamily on hikes\b", q_lower):
-        return AggregateIntent("hike_family", person)
-    if re.search(r"\bmusical artists?\b|\bbands?\b.*\bseen\b|\bseen\b.*\bbands?\b", q_lower):
-        return AggregateIntent("artists_seen", person)
-    if re.search(r"\bchanges?\b.*\btransition\b|\btransition journey\b", q_lower):
-        return AggregateIntent("transition_changes", person)
-    if re.search(r"\bwho supports\b|\bsupports .+ when\b", q_lower):
-        return AggregateIntent("supporters", person)
-    if re.search(r"\bkind of art\b|\bwhat art\b", q_lower):
-        return AggregateIntent("art_kind", person)
     return None
 
 
