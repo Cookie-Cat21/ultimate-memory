@@ -42,7 +42,7 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 | Model | single | multi | temporal | open |
 |---|---:|---:|---:|---:|
-| `flan-t5-xl` | 34.0 | **69.8** | 25.2 | **96.2** |
+| `flan-t5-xl` | 34.0 | **79.5** (XL18) / 69.8 | 25.2 | **96.2** |
 | `Qwen2.5-3B-Instruct` | 30.7 | **68.4** | 24.4 | **96.2** |
 
 ## Synthetic suite

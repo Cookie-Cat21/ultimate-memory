@@ -21,7 +21,9 @@ _UNANSWERABLE = re.compile(
 )
 _RELATIVE = re.compile(
     r"^(?:yesterday|today|tomorrow|last\s+year|last\s+month|last\s+week|"
-    r"this\s+year|this\s+month|this\s+week|recently)\.?$",
+    r"last\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|"
+    r"this\s+year|this\s+month|this\s+week|recently|"
+    r"last\s+weekend|this\s+weekend)\.?$",
     re.I,
 )
 

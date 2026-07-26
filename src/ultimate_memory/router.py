@@ -148,6 +148,12 @@ class MemoryRouter:
         use_llm: bool | None = None,
     ) -> dict:
         """Retrieve memory contexts and synthesize an answer (extractive or optional local LLM)."""
+        # Widen retrieval only for aggregate multi/open intents — a global limit bump
+        # flooded single-hop/temporal on dialog-1 (single 31→28, temporal 25→23).
+        early_agg = detect_aggregate_intent(question)
+        if early_agg is not None:
+            limit = max(limit, 28)
+
         # Keyword-dense query helps FTS more than full natural-language questions.
         stop = {
             "when", "what", "where", "who", "whom", "which", "how", "why", "did", "does",
@@ -628,21 +634,29 @@ class MemoryRouter:
         elif should_use_llm:
             llm_pool = merge_contexts(rich_contexts, inventory_contexts)
             # Prefer atomic / dialogue snippets first for the local answerer.
+            def _llm_context_rank(item: dict) -> tuple[int, float]:
+                text = str(item.get("text") or "")
+                item_id = str(item.get("id") or "")
+                # Prefer distilled LoCoMo observations/events over raw chat turns —
+                # late-dialog multi/open need these for evidence + list synthesis.
+                if item_id.startswith(("atom:obs:", "atom:evt:", "atom:inv:")):
+                    tier = 0
+                elif (
+                    str((item.get("provenance") or {}).get("source")) == "atomic-memory"
+                    or item_id.startswith(("atom:", "turn:"))
+                    or text.startswith("[D")
+                    or " profile:" in text
+                    or " activities:" in text
+                    or " items:" in text
+                ):
+                    tier = 1
+                else:
+                    tier = 2
+                return (tier, -float(item.get("score") or 0.0))
+
             ordered = sorted(
                 [item for item in llm_pool if item.get("text")],
-                key=lambda item: (
-                    0
-                    if (
-                        str((item.get("provenance") or {}).get("source")) == "atomic-memory"
-                        or str(item.get("id") or "").startswith(("atom:", "turn:"))
-                        or str(item.get("text") or "").startswith("[D")
-                        or " profile:" in str(item.get("text") or "")
-                        or " activities:" in str(item.get("text") or "")
-                        or " items:" in str(item.get("text") or "")
-                    )
-                    else 1,
-                    -float(item.get("score") or 0.0),
-                ),
+                key=_llm_context_rank,
             )
             # For list QA, bias toward the wide person-atom window.
             if should_list_answer and person_atom_texts:
