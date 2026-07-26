@@ -854,10 +854,17 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         re.search(r"\b(?:might|likely|would|could|potentially)\b", q_lower)
         or re.search(
             r"\b(?:nickname|console|holiday|degree|technique|composer|endorsement|"
-            r"condition|allerg(?:y|ies)|meat|shop|charity|national park|"
-            r"career|job|hobby|exercise|meat|state|country|board game|"
-            r"game with|health problems?|how old|card game)\b",
+            r"condition|allerg(?:y|ies)|meat|shop|national park|"
+            r"career path|hobby|board game|"
+            r"game with|health problems?|how old|card game|"
+            r"charity organization)\b",
             q_lower,
+        )
+        # Inferential career/job/state/country probes — require modal/soft language
+        # so bare "what did the charity race…" / "what job does X have" stay extractive.
+        or (
+            re.search(r"\b(?:might|likely|would|could|potentially|suspected)\b", q_lower)
+            and re.search(r"\b(?:career|job|state|country|exercise)\b", q_lower)
         )
     ):
         return AggregateIntent("entity_infer", person, topic=q_lower)

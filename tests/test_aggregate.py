@@ -273,6 +273,15 @@ class TestListUnionIntent:
         assert intent is not None
         assert intent.kind == "entity_infer"
 
+    def test_charity_race_not_entity_infer(self):
+        # Bare "charity" must not steal single-hop factual spans into entity_infer.
+        for q in (
+            "What did the charity race raise awareness for?",
+            "What did Melanie realize after the charity race?",
+        ):
+            intent = detect_aggregate_intent(q)
+            assert intent is None or intent.kind != "entity_infer", (q, intent)
+
     def test_food_hobby_inventories(self):
         facts = [
             "Audrey likes eating chicken pot pie, blueberry muffins, and sushi.",
