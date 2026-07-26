@@ -510,7 +510,8 @@ class MemoryRouter:
             "personality",
             "education_fields",
             "how_many",
-            "entity_infer",
+            # entity_infer intentionally omitted from always-prefer: wrong catalog
+            # hits previously overrode good LLM OD answers (XL17 open 34.8→30.8).
         }
         prefer_aggregated = False
         if aggregated and agg_intent is not None:
@@ -545,6 +546,10 @@ class MemoryRouter:
             }
             if kind in always:
                 prefer_aggregated = True
+            elif kind == "entity_infer":
+                # Only prefer when the aggregate is a short concrete span; otherwise
+                # let the LLM answer and keep aggregate as IDK fallback.
+                prefer_aggregated = len(aggregated.split()) <= 6
             elif kind in list_kinds:
                 prefer_aggregated = "," in aggregated or " and " in aggregated.lower()
             elif "," in aggregated:

@@ -282,6 +282,19 @@ class TestListUnionIntent:
             intent = detect_aggregate_intent(q)
             assert intent is None or intent.kind != "entity_infer", (q, intent)
 
+    def test_entity_infer_rejects_unrelated_catalog_hits(self):
+        # XL17 open regression: Florida/filmmaker leaked into unrelated OD answers.
+        texts = [
+            "John lives in Florida and talks about filmmaking and Under Armour.",
+            "Maria visited California last summer.",
+        ]
+        assert aggregate_answer("What might John's degree be in?", texts) is None
+        holiday = aggregate_answer(
+            "Around which US holiday did Maria get into a car accident?",
+            texts + ["Maria got into a car accident around Independence Day."],
+        )
+        assert holiday == "Independence Day"
+
     def test_food_hobby_inventories(self):
         facts = [
             "Audrey likes eating chicken pot pie, blueberry muffins, and sushi.",

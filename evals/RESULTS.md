@@ -16,7 +16,7 @@ Offline token-F1 vs A-MEM Table 1 (GPT-4o-mini). Mem0/Zep **J** scores need an L
 | Category | Ours (best) | Model | A-MEM | MemGPT |
 |---|---:|---|---:|---:|
 | single_hop | **39.82** ✓ | flan-t5-xl | 27.02 | 26.65 |
-| multi_hop | **27.99** | flan-t5-xl | 45.85 | 25.52 ✓ |
+| multi_hop | **28.01** (XL17) | flan-t5-xl | 45.85 | 25.52 ✓ |
 | temporal | **33.91** ✓ | flan-t5-xl | 12.14 | 9.15 |
 | open_domain | **34.79** | flan-t5-xl (XL13) | 44.65 | 41.04 |
 
@@ -34,7 +34,7 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL16**: aborted early (still on conv-26) to pick up late-dialog fixes.
 
-**XL17** (in flight): XL15 list-gate + how_many word-form + late-dialog list shapes + reflective OD + OD entity catalog + checkup how-often.
+**XL17**: overall **34.98** (best overall), single **38.59** ✓, multi **28.01** (new best; still < A-MEM), temporal **32.91** ✓, open **30.81** (regressed). Cause: loose entity_infer catalog fallback preferred over LLM. Fixed for XL18 (tight topic overlap, no hits[0] fallback, entity_infer not always-prefer).
 
 ## Dialog-1 (152 Qs) — full A-MEM sweep
 
