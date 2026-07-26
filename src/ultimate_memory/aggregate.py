@@ -801,11 +801,16 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         return AggregateIntent("children_count", person)
     # Safe generic counts: literal "how many", but not temporal durations
     # ("how many weeks/months/years passed/ago/lapsed/between").
-    if re.search(r"\bhow many\b", q_lower) and not re.search(
-        r"\bhow many (?:years|months|weeks|days)\b.+\b(?:ago|passed|lapsed|between)\b|"
-        r"\bafter how many (?:years|months|weeks|days)\b|"
-        r"\bhow many (?:years|months|weeks|days) (?:did|does|do|will|would).+\b(?:spend|last|take)\b",
-        q_lower,
+    # Skip compound "what X … and how many …" questions — those need full spans.
+    if (
+        re.search(r"\bhow many\b", q_lower)
+        and not re.match(r"^(?:what|which|who|where)\b", q_lower)
+        and not re.search(
+            r"\bhow many (?:years|months|weeks|days)\b.+\b(?:ago|passed|lapsed|between)\b|"
+            r"\bafter how many (?:years|months|weeks|days)\b|"
+            r"\bhow many (?:years|months|weeks|days) (?:did|does|do|will|would).+\b(?:spend|last|take)\b",
+            q_lower,
+        )
     ):
         return AggregateIntent("how_many", person, topic=_head_noun(q) or q_lower)
     if re.search(r"\bboth\b|\bin common\b", q_lower) and len(_all_persons(q)) >= 2:
@@ -1375,53 +1380,56 @@ def _how_many(
     def fmt(n: int, surface: str | None = None) -> str:
         return _format_count_answer(n, question=question or head, surface=surface)
 
-    # Phrase-level "twice/two times/…" near the topic.
-    for text in pool:
-        lower = text.lower()
-        topical = (not head_terms) or any(term in lower for term in head_terms)
-        if not topical:
-            # Only allow off-topic hits for explicit twice/thrice (high precision).
-            if not re.search(r"\b(?:twice|thrice)\b", lower):
+    # Phrase-level "twice/two times/…" — only for how-many-times questions,
+    # and only when the topic appears in the same snippet (or twice+topic).
+    if times_q:
+        for text in pool:
+            lower = text.lower()
+            topical = (not head_terms) or any(term in lower for term in head_terms)
+            if not topical:
                 continue
-        for phrase in (
-            r"\btwice\b",
-            r"\bthrice\b",
-            r"\b(\d+|two|three|four|five|six|seven|eight|nine|ten)\s+times?\b",
-            r"\b(?:once or )?twice\b",
-        ):
-            # Skip bare "one time(s)" — too often unrelated chitchat.
-            match = re.search(phrase, lower)
-            if not match:
-                continue
-            if not topical and "twice" not in match.group(0) and "thrice" not in match.group(0):
-                continue
-            if match.lastindex:
-                surface = match.group(1)
-                n = _normalize_count_token(surface)
-            else:
-                surface = match.group(0)
-                n = 2 if "twice" in surface else (3 if "thrice" in surface else None)
-            if n is not None:
-                return fmt(n, surface)
+            for phrase in (
+                r"\btwice\b",
+                r"\bthrice\b",
+                r"\b(\d+|two|three|four|five|six|seven|eight|nine|ten)\s+times?\b",
+                r"\b(?:once or )?twice\b",
+            ):
+                match = re.search(phrase, lower)
+                if not match:
+                    continue
+                if match.lastindex:
+                    surface = match.group(1)
+                    n = _normalize_count_token(surface)
+                else:
+                    surface = match.group(0)
+                    n = (
+                        2
+                        if "twice" in surface
+                        else (3 if "thrice" in surface else None)
+                    )
+                if n is not None:
+                    return fmt(n, surface)
 
     # Topic-specialized count cues before generic pet-name cardinality.
     blob = " ".join(pool).lower()
     if any(t in {"turtle", "turtles"} for t in search_terms) or "turtle" in q_lower:
+        turtle_ns: list[int] = []
+        if re.search(r"\b(?:third|3rd) turtle\b|\bgetting a third turtle\b", blob):
+            turtle_ns.append(3)
         for pat in (
             r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+turtles?\b",
             r"\bturtles?\b[^.!?]{0,100}\b(?:for|have|has|with)\s+(one|two|three|four|five)\b",
             r"\b(?:for|have|has|with)\s+(one|two|three|four|five)\b[^.!?]{0,80}\bturtles?\b",
-            r"\b(?:third|3rd) turtle\b",
-            r"\bgetting a third turtle\b",
         ):
-            m = re.search(pat, blob)
-            if not m:
-                continue
-            if "third" in m.group(0) or "3rd" in m.group(0):
-                return fmt(3, "three")
-            n = _normalize_count_token(m.group(1))
-            if n is not None:
-                return fmt(n, m.group(1))
+            for m in re.finditer(pat, blob):
+                n = _normalize_count_token(m.group(1))
+                if n is not None:
+                    turtle_ns.append(n)
+        if turtle_ns:
+            # Prefer the largest stated count (avoid "get two turtles" hypothetics
+            # overshadowing "third turtle" / "for three").
+            best = max(turtle_ns)
+            return fmt(best, _NUMBER_WORDS.get(best))
     if any(t.startswith("screenplay") or t in {"writing", "writings", "scripts"} for t in search_terms):
         m = re.search(
             r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+"
