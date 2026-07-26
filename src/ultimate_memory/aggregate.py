@@ -1494,10 +1494,17 @@ def _how_many(
                 if n is not None:
                     return fmt(n, surface)
 
-    # Pets: explicit numerals in the asked person's own turns only (avoid the
-    # other speaker's "my four dogs" answering "how many dogs does Andrew have").
+    # Pets: explicit numerals in the asked person's own speaker turns only.
+    # `_person_texts` also keeps "Audrey: Hey Andrew… my four dogs" because the
+    # name appears — that must not answer Andrew's dog count.
     if any(t in {"dog", "dogs", "puppy", "puppies", "pet", "pets"} for t in search_terms):
-        person_blob = " ".join(person_texts).lower()
+        own_turns = [
+            t
+            for t in texts
+            if person
+            and re.match(rf"^{re.escape(person)}\s*:", t.strip(), flags=re.I)
+        ] or person_texts
+        person_blob = " ".join(own_turns).lower()
         for pat in (
             r"\b(?:my|her|his|their)\s+(\d+|one|two|three|four|five)\s+(?:dogs?|pets?|puppies)\b",
             r"\b(?:having|have|has|with)\s+(\d+|one|two|three|four|five)\s+(?:dogs?|pets?|puppies)\b",
