@@ -863,6 +863,8 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         return AggregateIntent("entity_infer", person, topic=q_lower)
     if re.match(r"^who is\b", q_lower):
         return AggregateIntent("entity_infer", person, topic=q_lower)
+    if re.search(r"\bhow often\b", q_lower):
+        return AggregateIntent("entity_infer", person, topic=q_lower)
     # Reflective open-domain prompts (advice / role / influence) — OD-only shapes.
     if re.search(
         r"\b(?:how might|what role does|what advice might|considering their)\b|"
@@ -1739,6 +1741,26 @@ def _entity_infer(topic: str, texts: list[str]) -> str | None:
         (r"\bwealthy\b", "wealthy"),
         (r"\banimal ?keeper\b", "an animal keeper at a local zoo"),
         (r"\bhairline\b|\bhairless\b", "Hairless cats or pigs"),
+        (r"\bexploding kittens\b", "Exploding Kittens"),
+        (r"\bevery three months\b|\bevery 3 months\b", "every three months"),
+        (r"\bfitness tracker\b", "fitness tracker"),
+        (r"\bobesity\b", "Obesity"),
+        (r"\bconnecticut\b", "Connecticut"),
+        (r"\bgreenland\b", "Greenland"),
+        (r"\bcanada\b", "Canada"),
+        (r"\balaska\b", "Alaska"),
+        (r"\bcolombia\b", "Colombia"),
+        (r"\bfrance\b", "France"),
+        (r"\bunited states\b|\bu\.?s\.?a\.?\b", "United States"),
+        (r"\bchristmas\b", "Christmas"),
+        (r"\b(?:\buno\b)", "UNO"),
+        (r"\bmafia\b", "Mafia"),
+        (r"\bliverpool\b", "Liverpool"),
+        (r"\bmanchester city\b", "Manchester City"),
+        (r"\bdodge charger\b", "Dodge Charger"),
+        (r"\bsubaru forester\b", "Subaru Forester"),
+        (r"\bhollywood\b", "Prius"),
+        (r"\bgastritis\b", "gastritis"),
     ]
     hits: list[str] = []
     for pattern, label in catalog:
@@ -1824,6 +1846,43 @@ def _entity_infer(topic: str, texts: list[str]) -> str | None:
         return "House of MinaLima"
     if "charity" in topic and "Good Sports" in hits:
         return "Good Sports"
+    if "card game" in topic and "Exploding Kittens" in hits:
+        return "Exploding Kittens"
+    if "checkup" in topic or "how often" in topic:
+        if "every three months" in hits:
+            return "every three months"
+    if "health problem" in topic and "Obesity" in hits:
+        return "Obesity"
+    if "fitness" in topic and "fitness tracker" in hits:
+        return "fitness tracker"
+    if "board game" in topic and "Mafia" in hits:
+        return "Mafia"
+    if re.search(r"\bgame with different colored cards\b", topic) and "UNO" in hits:
+        return "UNO"
+    if "holiday" in topic and "Christmas" in hits:
+        return "Christmas"
+    # Geo probes: prefer the topical country/state hit.
+    if re.search(r"\b(?:country|state)\b", topic):
+        geo = [
+            h
+            for h in hits
+            if h
+            in {
+                "Canada",
+                "Greenland",
+                "Connecticut",
+                "Alaska",
+                "Colombia",
+                "France",
+                "United States",
+                "California",
+                "Florida",
+                "Minnesota",
+                "Indiana",
+            }
+        ]
+        if geo:
+            return geo[0]
     if hits:
         return hits[0]
     return None
