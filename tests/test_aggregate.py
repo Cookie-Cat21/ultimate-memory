@@ -282,6 +282,20 @@ class TestListUnionIntent:
             intent = detect_aggregate_intent(q)
             assert intent is None or intent.kind != "entity_infer", (q, intent)
 
+    def test_specialized_intents_before_list(self):
+        assert detect_aggregate_intent(
+            "What career path has Caroline decided to persue?"
+        ).kind == "career"
+        assert detect_aggregate_intent(
+            "What musical artists/bands has Melanie seen?"
+        ).kind == "artists_seen"
+        assert detect_aggregate_intent(
+            "What items has Melanie bought?"
+        ).kind == "bought_items"
+        assert detect_aggregate_intent(
+            "What transgender-specific events has Caroline attended?"
+        ).kind == "trans_events"
+
     def test_entity_infer_rejects_unrelated_catalog_hits(self):
         # XL17 open regression: Florida/filmmaker leaked into unrelated OD answers.
         texts = [
