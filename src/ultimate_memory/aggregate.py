@@ -863,7 +863,9 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         return AggregateIntent("entity_infer", person, topic=q_lower)
     if re.match(r"^who is\b", q_lower):
         return AggregateIntent("entity_infer", person, topic=q_lower)
-    if re.search(r"\bhow often\b", q_lower):
+    # Only checkup-style how-often → entity_infer. Generic "how often does X …"
+    # is usually single-hop frequency and must keep extractive/LLM spans.
+    if re.search(r"\bhow often\b.+\bcheckup", q_lower):
         return AggregateIntent("entity_infer", person, topic=q_lower)
     # Reflective open-domain prompts (advice / role / influence) — OD-only shapes.
     if re.search(
