@@ -1494,14 +1494,17 @@ def _how_many(
                 if n is not None:
                     return fmt(n, surface)
 
-    # Pets: explicit numerals only. Name-cardinality over/under-counts on LoCoMo.
+    # Pets: explicit numerals in the asked person's own turns only (avoid the
+    # other speaker's "my four dogs" answering "how many dogs does Andrew have").
     if any(t in {"dog", "dogs", "puppy", "puppies", "pet", "pets"} for t in search_terms):
+        person_blob = " ".join(person_texts).lower()
         for pat in (
             r"\b(?:my|her|his|their)\s+(\d+|one|two|three|four|five)\s+(?:dogs?|pets?|puppies)\b",
+            r"\b(?:having|have|has|with)\s+(\d+|one|two|three|four|five)\s+(?:dogs?|pets?|puppies)\b",
             r"\b(\d+|one|two|three|four|five)\s+(?:dogs?|pets?|puppies)\b",
             r"\badopted\s+(\d+|one|two|three|four|five)\b",
         ):
-            m = re.search(pat, blob)
+            m = re.search(pat, person_blob)
             if not m:
                 continue
             n = _normalize_count_token(m.group(1))
