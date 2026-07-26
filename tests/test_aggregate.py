@@ -177,7 +177,21 @@ class TestListUnionIntent:
     def test_how_many_twice(self):
         texts = ["Joanna found new hiking trails twice this year near her home."]
         answer = aggregate_answer("How many times has Joanna found new hiking trails?", texts)
-        assert answer == "2"
+        # Surface "twice" preserved; digit "2" scores 0 against LoCoMo "twice".
+        assert answer == "twice"
+
+    def test_how_many_two_times_default(self):
+        texts = ["Jolene went to France two times with her family."]
+        answer = aggregate_answer("How many times has Jolene been to France?", texts)
+        assert answer == "two times"
+
+    def test_how_many_word_form(self):
+        texts = [
+            "Nate: The tank is big enough now for three, so I figured why not.",
+            "Nate loves turtles and got a third turtle this year.",
+        ]
+        answer = aggregate_answer("How many turtles does Nate have?", texts)
+        assert answer == "three"
 
     def test_does_not_steal_when(self):
         intent = detect_aggregate_intent("When did Caroline go to the LGBTQ support group?")
