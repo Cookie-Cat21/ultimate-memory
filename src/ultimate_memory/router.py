@@ -148,10 +148,17 @@ class MemoryRouter:
         use_llm: bool | None = None,
     ) -> dict:
         """Retrieve memory contexts and synthesize an answer (extractive or optional local LLM)."""
-        # Widen retrieval only for aggregate multi/open intents — a global limit bump
-        # flooded single-hop/temporal on dialog-1 (single 31→28, temporal 25→23).
+        # Widen retrieval only for list/OD aggregate kinds. Specialized short
+        # collectors and non-aggregate questions keep the default limit so
+        # single-hop/temporal contexts are not diluted.
         early_agg = detect_aggregate_intent(question)
-        if early_agg is not None:
+        if early_agg is not None and early_agg.kind in {
+            "inventory_union",
+            "how_many",
+            "entity_infer",
+            "hypothetical",
+            "both_intersection",
+        }:
             limit = max(limit, 28)
 
         # Keyword-dense query helps FTS more than full natural-language questions.
