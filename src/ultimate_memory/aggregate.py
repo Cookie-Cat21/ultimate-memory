@@ -1412,7 +1412,12 @@ def _how_many(
 
     # Topic-specialized count cues before generic pet-name cardinality.
     blob = " ".join(pool).lower()
-    if any(t in {"turtle", "turtles"} for t in search_terms) or "turtle" in q_lower:
+    # Cardinal turtle counts only — never for "how many times … turtles …".
+    if (not times_q) and (
+        any(t in {"turtle", "turtles"} for t in search_terms) or re.search(
+            r"\bhow many turtles\b", q_lower
+        )
+    ):
         turtle_ns: list[int] = []
         if re.search(r"\b(?:third|3rd) turtle\b|\bgetting a third turtle\b", blob):
             turtle_ns.append(3)
