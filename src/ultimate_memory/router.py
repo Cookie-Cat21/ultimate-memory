@@ -436,10 +436,13 @@ class MemoryRouter:
                             " foods:",
                             " hobbies:",
                             " allergies:",
-                            " writings:",
-                            " music:",
-                            " dreams:",
-                            " classes:",
+                                " writings:",
+                                " music:",
+                                " inspiration:",
+                                " car work:",
+                                " studio offers:",
+                                " dreams:",
+                                " classes:",
                         )
                     ):
                         inventory_contexts.append(
@@ -585,6 +588,9 @@ class MemoryRouter:
                 " allergies:",
                 " writings:",
                 " music:",
+                " inspiration:",
+                " car work:",
+                " studio offers:",
                 " dreams:",
                 " classes:",
             )
@@ -748,6 +754,9 @@ class MemoryRouter:
                                 "allergies",
                                 "writings",
                                 "music",
+                                "inspiration",
+                                "car work",
+                                "studio offers",
                                 "dreams",
                                 "classes",
                             )

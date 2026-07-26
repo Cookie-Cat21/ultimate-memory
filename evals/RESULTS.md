@@ -30,7 +30,11 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL14** (list-intent widen): overall **34.08** — multi **25.77** / open **32.47** regressed (weak inventory_union → noisy list LLM). Reverted that gate.
 
-**XL15**: keep gazetteer places + specialized both-intersection; require strong list signal before list LLM; rebench full suite.
+**XL15** (list-gate + both/places): overall **34.34**, single **37.87** ✓, multi **26.79**, temporal **32.04** ✓, open **33.25**. Scoreboard vs A-MEM **2/4**.
+
+**XL16** (in flight): how_many word-form answers + speaker-scoped pets + XL15 list-gate (started before late-dialog list-shape expansion).
+
+**Next (XL17 code):** late-dialog list shapes (`what kind of writing does`, inspired-by, screenplay/studio/offer, promote/disburse), reflective OD hypotheticals, card-game entity_infer, inspiration/car-work/studio topic inventories.
 
 ## Dialog-1 (152 Qs) — full A-MEM sweep
 

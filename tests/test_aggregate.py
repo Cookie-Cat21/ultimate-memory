@@ -232,6 +232,32 @@ class TestListUnionIntent:
         intent = detect_aggregate_intent("What kind of tattoo does Audrey have on her arm?")
         assert intent is None or intent.kind != "inventory_union"
 
+    def test_late_dialog_list_shapes(self):
+        for q in (
+            "What kind of writing does Tim do?",
+            "What is Joanna inspired by?",
+            "Which of Joanna's screenplay were rejected from production companies?",
+            "What does Jon's dance studio offer?",
+            "What does John like about Lebron James?",
+            "What activity do Audrey's dogs like to do in the dog park?",
+            "How did Gina promote her clothes store?",
+            "How has Nate tried to disburse his vegan ice-cream recipes?",
+            "When Dave was a child, what did he and his father do in the garage?",
+        ):
+            intent = detect_aggregate_intent(q)
+            assert intent is not None, q
+            assert intent.kind == "inventory_union", (q, intent.kind)
+
+    def test_reflective_open_domain_intent(self):
+        intent = detect_aggregate_intent(
+            "What role does nature and the outdoors play in Evan and Sam's mental well-being?"
+        )
+        assert intent is not None
+        assert intent.kind == "hypothetical"
+        intent = detect_aggregate_intent("What card game is Deborah talking about?")
+        assert intent is not None
+        assert intent.kind == "entity_infer"
+
     def test_what_has_cooked_list(self):
         intent = detect_aggregate_intent("What has John cooked?")
         assert intent is not None

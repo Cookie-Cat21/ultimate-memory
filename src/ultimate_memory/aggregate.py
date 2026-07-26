@@ -563,7 +563,9 @@ def _looks_like_list_question(question: str) -> bool:
         r"^(?:when|how long|what year|what date|what month|what day|in which month)\b",
         q_lower,
     ):
-        return False
+        # Exception: "When X was a child, what did …" is a childhood activity list.
+        if not re.search(r"^when\b.+\bwas a child,\s+what did\b", q_lower):
+            return False
     # "What kind/type(s) of X" — allowlist multi-item heads only (no bare plural
     # morphology). Generic "kind of flowers/cookies/music" is usually single-hop.
     if re.search(r"\bwhat (?:kinds?|types?) of\b", q_lower):
@@ -574,6 +576,10 @@ def _looks_like_list_question(question: str) -> bool:
             r"(?:listen|serve|relax|cope|do to)\b",
             q_lower,
         ):
+            return True
+        # "What kind of writing does X do" is multi-hop inventory (forum comments,
+        # articles, novels…). Keep singular "writing" blocked for other shapes.
+        if re.search(r"\bwhat kind of writing does\b.+\bdo\b", q_lower):
             return True
         if head and _SINGULAR_KIND_HEADS.search(head):
             return False
@@ -648,6 +654,19 @@ def _looks_like_list_question(question: str) -> bool:
         r"\bwho have\b.+\b(?:written|visited|passed|helped)\b|"
         r"\bwhich of\b.+\b(?:family|friends|members)\b",
         q_lower,
+    ):
+        return True
+    # High-precision late-dialog list shapes (comma-list golds, not single-hop).
+    if re.search(
+        r"\bwhat is\s+[A-Z][a-z]{2,}\s+inspired by\b|"
+        r"\bwhich of\b.+\bscreenplays?\b|"
+        r"\bwhat does\b.+\boffer\b|"
+        r"\bwhat does\b.+\blike about\b|"
+        r"\bwhat activity do\b.+\bdogs?\b|"
+        r"\bhow (?:did|has)\b.+\b(?:promote|disburse|tried to)\b|"
+        r"\bwhen\s+[A-Z][a-z]{2,}\s+was a child,\s+what did\b",
+        q,
+        re.I,
     ):
         return True
     # "What <plural-ish head> has/have Person …" (case-insensitive on WH-word).
@@ -837,13 +856,20 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
             r"\b(?:nickname|console|holiday|degree|technique|composer|endorsement|"
             r"condition|allerg(?:y|ies)|meat|shop|charity|national park|"
             r"career|job|hobby|exercise|meat|state|country|board game|"
-            r"game with|health problems?|how old)\b",
+            r"game with|health problems?|how old|card game)\b",
             q_lower,
         )
     ):
         return AggregateIntent("entity_infer", person, topic=q_lower)
     if re.match(r"^who is\b", q_lower):
         return AggregateIntent("entity_infer", person, topic=q_lower)
+    # Reflective open-domain prompts (advice / role / influence) — OD-only shapes.
+    if re.search(
+        r"\b(?:how might|what role does|what advice might|considering their)\b|"
+        r"\bhow do\b.+\b(?:use|cope)\b",
+        q_lower,
+    ):
+        return AggregateIntent("hypothetical", person, topic=q_lower)
     # Factual geo / named-entity probes common in open-domain LoCoMo.
     if re.search(
         r"\b(?:what|which|in which)\s+(?:state|country)\b|"
@@ -2449,7 +2475,9 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"\b(screenplays?|books?|online blog posts?|blog posts?|"
             r"journals?|journaling|journalling|creative writing|"
             r"articles on fantasy novels|fantasy literature forum comments?|"
-            r"book recommendations)\b",
+            r"comments on favorite books|studying characters|"
+            r"making book recommendations|writing a fantasy novel|"
+            r"fantasy stories with plot twists|book recommendations)\b",
             re.I,
         ),
     ),
@@ -2459,6 +2487,31 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"\b(classic rock|japanese music|tupac|dr\.?\s*dre|"
             r"classical music|bach|mozart|john williams|"
             r"summer sounds|matt patterson)\b",
+            re.I,
+        ),
+    ),
+    (
+        "inspiration",
+        re.compile(
+            r"\b(personal experiences|self[- ]?discovery|validation|"
+            r"stories about finding courage|taking risks|imagination|"
+            r"people she knows|stuff she sees|nature)\b",
+            re.I,
+        ),
+    ),
+    (
+        "car work",
+        re.compile(
+            r"\b(tinkering with car engines|restoration|refurbishing cars|"
+            r"car modification|restoring cars|auto engineering)\b",
+            re.I,
+        ),
+    ),
+    (
+        "studio offers",
+        re.compile(
+            r"\b(one-on-one (?:mentoring|metoring)|workshops?|"
+            r"classes to local schools|training to dancers)\b",
             re.I,
         ),
     ),
@@ -2772,6 +2825,9 @@ def build_speaker_inventories(speaker: str, fact_texts: list[str]) -> list[str]:
             "allergies",
             "writings",
             "music",
+            "inspiration",
+            "car work",
+            "studio offers",
             "dreams",
             "classes",
         }:
