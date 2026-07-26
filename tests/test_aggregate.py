@@ -255,13 +255,13 @@ class TestListUnionIntent:
         assert intent is not None
         assert intent.kind == "hypothetical"
         intent = detect_aggregate_intent("What card game is Deborah talking about?")
+        assert intent is not None
+        assert intent.kind == "entity_infer"
         intent = detect_aggregate_intent("How often does Sam get health checkups?")
         assert intent is not None
         assert intent.kind == "entity_infer"
         intent = detect_aggregate_intent("How often does Melanie go to the beach with her kids?")
         assert intent is None or intent.kind != "entity_infer"
-        assert intent is not None
-        assert intent.kind == "entity_infer"
 
     def test_what_has_cooked_list(self):
         intent = detect_aggregate_intent("What has John cooked?")
