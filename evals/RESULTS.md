@@ -16,11 +16,11 @@ Offline token-F1 vs A-MEM Table 1 (GPT-4o-mini). Mem0/Zep **J** scores need an L
 | Category | Ours (best) | Model | A-MEM | MemGPT |
 |---|---:|---|---:|---:|
 | single_hop | **39.82** ✓ | flan-t5-xl | 27.02 | 26.65 |
-| multi_hop | **31.46** (XL20) | flan-t5-xl | 45.85 | 25.52 ✓ |
+| multi_hop | **34.73** (XL21) | flan-t5-xl | 45.85 | 25.52 ✓ |
 | temporal | **33.91** ✓ | flan-t5-xl | 12.14 | 9.15 |
 | open_domain | **34.79** | flan-t5-xl (XL13) | 44.65 | 41.04 |
 
-**Scoreboard vs A-MEM:** **2/4** (single + temporal). MemGPT **3/4**. MemoryBank/ReadAgent **4/4**.
+**Scoreboard vs A-MEM:** **2/4** (single + temporal). MemGPT **3/4**. MemoryBank/ReadAgent **4/4**. Best overall: **XL21 36.20**.
 
 XL13 full rebench (intent-gated person window): overall **34.71**, multi **27.31**, open **34.79**, single **37.95**.
 
@@ -42,7 +42,7 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL20**: overall **35.46**, single **38.13** ✓, multi **31.46** (best; still < A-MEM 45.85), temporal **32.40** ✓, open **34.04**. Scoreboard vs A-MEM **2/4**; vs MemGPT **3/4**.
 
-**XL21** (running): qualified late-dialog inventories + filter `atom:inv` out of non-list retrieval (protects single/temporal). XL22 soft person reverted.
+**XL21**: overall **36.20** (best), single **38.45** ✓, multi **34.73** (best; still < A-MEM 45.85), temporal **32.26** ✓, open **33.92**. Qualified late-dialog inventories + `atom:inv` filtered from non-list retrieval. Scoreboard vs A-MEM **2/4**; vs MemGPT **3/4**.
 
 ## Dialog-1 (152 Qs) — full A-MEM sweep
 
