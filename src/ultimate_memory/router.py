@@ -411,9 +411,11 @@ class MemoryRouter:
             ]
         person = agg_intent.person if agg_intent else None
         cat_l = (category or "").strip().lower()
+        # Soft person only for multi_hop. Open-domain soft prepend + wider ctx
+        # regressed full-suite open 33.92→31.88 (XL23).
         if (
             not person
-            and cat_l in {"multi_hop", "open_domain"}
+            and cat_l == "multi_hop"
             and re.match(
                 r"^(?:who|why|how|can|what is something|what happened|"
                 r"what kind of|what is|which|where|do|does|did)\b",
@@ -780,14 +782,10 @@ class MemoryRouter:
                         list_contexts.append(text.strip())
                 context_texts = list_contexts[:28]
             else:
-                od_or_infer = bool(
-                    cat_l == "open_domain"
-                    or (agg_intent and agg_intent.kind in {"hypothetical", "entity_infer"})
-                )
-                ctx_limit = 24 if od_or_infer else 14
+                ctx_limit = 22 if (agg_intent and agg_intent.kind in {"hypothetical", "entity_infer"}) else 14
                 context_texts = [str(item.get("text") or "")[:500] for item in ordered[:ctx_limit]]
-                # Prepend person facts for OD/inferential aggregates, or category-gated
-                # soft person window for none-intent multi/open.
+                # Prepend person facts for OD/inferential aggregates, or multi-only
+                # soft person window for none-intent multi-hop.
                 pref_source = person_atom_texts if (
                     person_atom_texts
                     and agg_intent
@@ -797,7 +795,7 @@ class MemoryRouter:
                         "career",
                         "how_many",
                     }
-                ) else (soft_person_texts if soft_person_texts and cat_l in {"multi_hop", "open_domain"} else [])
+                ) else (soft_person_texts if soft_person_texts and cat_l == "multi_hop" else [])
                 if pref_source:
                     pref: list[str] = []
                     seen_p: set[str] = set()
@@ -809,9 +807,9 @@ class MemoryRouter:
                             continue
                         seen_p.add(key)
                         pref.append(text.strip()[:420])
-                        if len(pref) >= (14 if cat_l == "open_domain" else 10):
+                        if len(pref) >= 10:
                             break
-                    context_texts = (pref + context_texts)[: max(ctx_limit, 20)]
+                    context_texts = (pref + context_texts)[: max(ctx_limit, 18)]
             try:
                 from .llm_answer import get_local_answerer
 

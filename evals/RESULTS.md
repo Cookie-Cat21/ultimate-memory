@@ -42,7 +42,7 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL20**: overall **35.46**, single **38.13** ✓, multi **31.46** (best; still < A-MEM 45.85), temporal **32.40** ✓, open **34.04**. Scoreboard vs A-MEM **2/4**; vs MemGPT **3/4**.
 
-**XL23** (running): category-gated soft person window for multi/open only + wider OD LLM context. Dialog-1 single recovered to 32.06.
+**XL23**: overall **35.91** — multi **34.74** (tied XL21) but open **31.88** regressed (OD soft person + wider ctx). Soft person now multi-only; OD wider ctx reverted.
 
 **XL21**: overall **36.20** (best), single **38.45** ✓, multi **34.73** (best; still < A-MEM 45.85), temporal **32.26** ✓, open **33.92**. Qualified late-dialog inventories + `atom:inv` filtered from non-list retrieval. Scoreboard vs A-MEM **2/4**; vs MemGPT **3/4**.
 
