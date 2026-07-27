@@ -282,6 +282,28 @@ class TestListUnionIntent:
             intent = detect_aggregate_intent(q)
             assert intent is None or intent.kind != "entity_infer", (q, intent)
 
+    def test_late_dialog_topic_inventories(self):
+        facts = [
+            "Dave's favorite band from the music festival was Aerosmith.",
+            "Dave also loved The Fireworks at the festival.",
+            "Calvin receives a gold chain with diamond pendant as gift from another artist.",
+            "Calvin had a guitar custom made with an octopus design by his Japanese artist friend.",
+            "Calvin had a car accident last Friday.",
+            "Calvin's place got flooded last week.",
+        ]
+        inv = "\n".join(
+            build_speaker_inventories("Dave", facts)
+            + build_speaker_inventories("Calvin", facts)
+        )
+        assert "Aerosmith" in inv
+        assert "Fireworks" in inv or "fireworks" in inv.lower()
+        assert "gold chain" in inv.lower()
+        bands = aggregate_answer(
+            "Which bands has Dave enjoyed listening to?",
+            build_speaker_inventories("Dave", facts),
+        )
+        assert bands and "Aerosmith" in bands
+
     def test_specialized_intents_before_list(self):
         assert detect_aggregate_intent(
             "What career path has Caroline decided to persue?"

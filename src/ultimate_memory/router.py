@@ -456,6 +456,17 @@ class MemoryRouter:
                                 " studio offers:",
                                 " dreams:",
                                 " classes:",
+                                " bands:",
+                                " gifts:",
+                                " emotions:",
+                                " damages:",
+                                " accidents:",
+                                " events:",
+                                " pet tricks:",
+                                " yoga places:",
+                                " collectibles:",
+                                " purchases:",
+                                " tv series:",
                         )
                     ):
                         inventory_contexts.append(
@@ -611,6 +622,17 @@ class MemoryRouter:
                 " studio offers:",
                 " dreams:",
                 " classes:",
+                " bands:",
+                " gifts:",
+                " emotions:",
+                " damages:",
+                " accidents:",
+                " events:",
+                " pet tricks:",
+                " yoga places:",
+                " collectibles:",
+                " purchases:",
+                " tv series:",
             )
         )
         # Require a real list signal. Bare ">=2 person atoms" previously forced the
@@ -785,6 +807,17 @@ class MemoryRouter:
                                 "studio offers",
                                 "dreams",
                                 "classes",
+                                "bands",
+                                "gifts",
+                                "emotions",
+                                "damages",
+                                "accidents",
+                                "events",
+                                "pet tricks",
+                                "yoga places",
+                                "collectibles",
+                                "purchases",
+                                "tv series",
                             )
                             if term in head_l or any(t in term for t in head_terms)
                         ):

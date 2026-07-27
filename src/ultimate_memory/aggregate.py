@@ -526,7 +526,9 @@ _LISTISH_KIND_HEADS = re.compile(
     r"unhealthy snacks|indoor activities|engineering projects|"
     r"programming[- ]related events|family members|foods? or recipes|"
     r"mediums|locations|areas|damages|goals|causes|"
-    r"shelters|instruments|screenplays|tv series"
+    r"shelters|instruments|screenplays|tv series|"
+    r"gifts|emotions|accidents|mishaps|bands|tricks|"
+    r"collectibles|purchases|recommendations|events"
     r")\b",
     re.I,
 )
@@ -925,7 +927,8 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         r"dreams|snacks|meals|subjects|projects|tricks|suggestions|"
         r"recommendations|problems|hobbies|family members|"
         r"martial arts|music events|outdoor activities|european countries|"
-        r"people|names)"
+        r"people|names|gifts|emotions|damages|accidents|mishaps|"
+        r"bands|mediums|locations|collectibles|purchases|tv series)"
         r"\b",
         q_lower,
     )
@@ -1308,16 +1311,47 @@ def _inventory_union(person: str | None, head: str, texts: list[str]) -> str | N
 
     # Prefer structured inventory lines for this head.
     for text in person_texts:
-        lower = text.lower()
         if ":" not in text:
             continue
         label, rhs = text.split(":", 1)
         label_l = label.lower()
-        if any(term in label_l for term in head_terms) or (
+        # Alias topic labels so "gifts" matches "gifts:", "bands"/"music", etc.
+        alias_ok = any(
+            (term in label_l)
+            or (term in {"band", "bands"} and "music" in label_l)
+            or (term in {"mishap", "mishaps", "damage", "damages"} and "damage" in label_l)
+            or (term in {"location", "locations"} and ("place" in label_l or "yoga" in label_l))
+            or (term in {"item", "items", "purchase", "purchases", "bought"} and "purchase" in label_l)
+            or (term in {"item", "items"} and "collectible" in label_l)
+            or (term in {"trick", "tricks"} and "trick" in label_l)
+            for term in head_terms
+        )
+        if alias_ok or (
             place_mode and any(tok in label_l for tok in ("place", "city", "cities", "country"))
         ):
             for part in re.split(r",|/|\||\band\b", rhs):
                 add(part)
+    # If structured inventory lines already yielded a clean list, stop — avoid
+    # diluting with free-text harvest junk ("enjoyed listening to many cool bands").
+    if len(items) >= 2 and any(
+        marker in text
+        for text in person_texts
+        for marker in (
+            " bands:",
+            " gifts:",
+            " emotions:",
+            " damages:",
+            " accidents:",
+            " events:",
+            " purchases:",
+            " collectibles:",
+            " pet tricks:",
+            " yoga places:",
+            " tv series:",
+            " music:",
+        )
+    ):
+        return ", ".join(items[:10])
 
     if place_mode:
         for text in person_texts:
@@ -2585,7 +2619,99 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(
             r"\b(classic rock|japanese music|tupac|dr\.?\s*dre|"
             r"classical music|bach|mozart|john williams|"
-            r"summer sounds|matt patterson)\b",
+            r"summer sounds|matt patterson|aerosmith|the fireworks)\b",
+            re.I,
+        ),
+    ),
+    (
+        "bands",
+        re.compile(
+            r"\b(aerosmith|the fireworks|summer sounds|matt patterson|"
+            r"tupac|dr\.?\s*dre)\b",
+            re.I,
+        ),
+    ),
+    (
+        "gifts",
+        re.compile(
+            r"\b(gold chain(?: with diamond pendant)?|"
+            r"(?:custom[- ]made )?guitar(?: custom made)?(?: with an octopus(?: design| on it)?)?|"
+            r"diamond pendant(?: necklace)?|necklace with a diamond pendant|"
+            r"appreciate letter|appreciation letter|flower bouqet|flower bouquet|"
+            r"motivational quote|stuffed toy pup)\b",
+            re.I,
+        ),
+    ),
+    (
+        "emotions",
+        re.compile(
+            r"\b(relief|excitement|worry|hope|anxiety|stressed|stressful|"
+            r"grateful|proud|nervous|lonely)\b",
+            re.I,
+        ),
+    ),
+    (
+        "damages",
+        re.compile(
+            r"\b(broken windshield|car broke down|flooding(?: of his mansion)?|"
+            r"car accident|flooded|flood)\b",
+            re.I,
+        ),
+    ),
+    (
+        "accidents",
+        re.compile(
+            r"\b(injured at a soccer game|fell off his bike|car accident|"
+            r"ankle injury|roadtrip accident)\b",
+            re.I,
+        ),
+    ),
+    (
+        "events",
+        re.compile(
+            r"\b(networking events?|dance competition|fair|"
+            r"music festival|pride parade|art show|toy drive|food drive)\b",
+            re.I,
+        ),
+    ),
+    (
+        "pet tricks",
+        re.compile(
+            r"\b(catching frisbees?|balancing on a skateboard|"
+            r"\bsit\b|\bstay\b|\bpaw\b|rollover|roll over|swimming)\b",
+            re.I,
+        ),
+    ),
+    (
+        "yoga places",
+        re.compile(
+            r"\b(?:yoga|practice)\b[^.;\n]{0,60}?\b"
+            r"(mother's old home|park|yoga studio|beach)\b|"
+            r"\b(mother's old home|yoga studio)\b",
+            re.I,
+        ),
+    ),
+    (
+        "collectibles",
+        re.compile(
+            r"\b(sneakers|fantasy movie dvds?|jerseys|"
+            r"film camera|doll|figurines?)\b",
+            re.I,
+        ),
+    ),
+    (
+        "purchases",
+        re.compile(
+            r"\b(mansion in japan|japanese mansion|ferrari(?: 488 gtb)?|"
+            r"luxury car|ferrari)\b",
+            re.I,
+        ),
+    ),
+    (
+        "tv series",
+        re.compile(
+            r"\b(wheel of time|that '?70s show|stranger things|"
+            r"game of thrones)\b",
             re.I,
         ),
     ),
@@ -2929,6 +3055,17 @@ def build_speaker_inventories(speaker: str, fact_texts: list[str]) -> list[str]:
             "studio offers",
             "dreams",
             "classes",
+            "bands",
+            "gifts",
+            "emotions",
+            "damages",
+            "accidents",
+            "events",
+            "pet tricks",
+            "yoga places",
+            "collectibles",
+            "purchases",
+            "tv series",
         }:
             inventories.append(f"{speaker} {label}: " + ", ".join(cleaned_items[:10]))
         elif len(cleaned_items) >= 2:

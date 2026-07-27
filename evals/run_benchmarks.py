@@ -386,6 +386,38 @@ def run_locomo(
                     text = str(item[0] if isinstance(item, list) and item else item).strip()
                     if len(text) >= 20:
                         profile_bits.setdefault(speaker, []).append(text[:180])
+
+        # Fold event_summary into profile/inventory construction. Many late-dialog
+        # list golds (gifts, purchases, mishaps) live only in event distillations.
+        event_summary = sample.get("event_summary") or {}
+        for ekey, speakers in event_summary.items():
+            if not isinstance(speakers, dict):
+                continue
+            event_date = speakers.get("date")
+            date_suffix = f" on {event_date}" if event_date else ""
+            facts = []
+            for speaker, events in speakers.items():
+                if speaker == "date":
+                    continue
+                if isinstance(events, list):
+                    for event in events:
+                        text = str(event).strip()
+                        if len(text) >= 12:
+                            profile_bits.setdefault(speaker, []).append(text[:180])
+                            # Attach session event date for temporal QA.
+                            stamped = f"{speaker}: {text}{date_suffix}"[:240]
+                            facts.append(stamped)
+            for idx, fact in enumerate(facts):
+                atom = AtomicMemory(
+                    id=f"atom:evt:{safe_slug(sample_id)}:{safe_slug(ekey)}:{idx}:{content_hash(fact)[:8]}",
+                    text=fact,
+                    memory_type=MemoryType.FACT,
+                    project_path=str(work / "project"),
+                    source_refs=[f"evt:{sample_id}:{ekey}"],
+                    created_at=now_iso(),
+                )
+                router._ingest_atom(atom)
+
         for speaker, bits in profile_bits.items():
             # Dedup while preserving order
             seen_bits: set[str] = set()
@@ -424,34 +456,6 @@ def run_locomo(
                         importance=0.95,
                     )
                 )
-
-        event_summary = sample.get("event_summary") or {}
-        for ekey, speakers in event_summary.items():
-            if not isinstance(speakers, dict):
-                continue
-            event_date = speakers.get("date")
-            date_suffix = f" on {event_date}" if event_date else ""
-            facts = []
-            for speaker, events in speakers.items():
-                if speaker == "date":
-                    continue
-                if isinstance(events, list):
-                    for event in events:
-                        text = str(event).strip()
-                        if len(text) >= 12:
-                            # Attach session event date for temporal QA.
-                            stamped = f"{speaker}: {text}{date_suffix}"[:240]
-                            facts.append(stamped)
-            for idx, fact in enumerate(facts):
-                atom = AtomicMemory(
-                    id=f"atom:evt:{safe_slug(sample_id)}:{safe_slug(ekey)}:{idx}:{content_hash(fact)[:8]}",
-                    text=fact,
-                    memory_type=MemoryType.FACT,
-                    project_path=str(work / "project"),
-                    source_refs=[f"evt:{sample_id}:{ekey}"],
-                    created_at=now_iso(),
-                )
-                router._ingest_atom(atom)
 
         session_summary = sample.get("session_summary") or {}
         for skey, summary in session_summary.items():
