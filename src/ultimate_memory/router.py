@@ -365,6 +365,43 @@ class MemoryRouter:
         inventory_contexts: list[dict] = []
         # Soft person window (XL22) reverted: even tight who/why/can prefixes
         # hit single-hop on dialog-1 (32→29). Needs category gating.
+        # Drop inventory atoms from the general extractive/LLM pool unless a list
+        # aggregate intent is active. XL21's extra inv lines otherwise drown
+        # single/temporal spans (d1 single 32→29.5, temporal 25→23.5).
+        _list_inv_kinds = {
+            "inventory_union",
+            "activities",
+            "camp_places",
+            "kids_like",
+            "books",
+            "lgbtq_ways",
+            "lgbtq_events",
+            "help_children",
+            "painted_subjects",
+            "destress",
+            "instruments",
+            "pet_names",
+            "pottery_types",
+            "symbols",
+            "trans_events",
+            "bought_items",
+            "hike_family",
+            "artists_seen",
+            "transition_changes",
+            "supporters",
+            "both_painted",
+            "both_intersection",
+            "martial_arts",
+            "yoga_types",
+            "children_names",
+            "how_many",
+        }
+        if agg_intent is None or agg_intent.kind not in _list_inv_kinds:
+            rich_contexts = [
+                item
+                for item in rich_contexts
+                if not str(item.get("id") or "").startswith("atom:inv:")
+            ]
         person = agg_intent.person if agg_intent else None
         if person:
             for atom in self.store.search_atoms(person, limit=100):

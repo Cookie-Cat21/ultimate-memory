@@ -42,7 +42,7 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL20**: overall **35.46**, single **38.13** ✓, multi **31.46** (best; still < A-MEM 45.85), temporal **32.40** ✓, open **34.04**. Scoreboard vs A-MEM **2/4**; vs MemGPT **3/4**.
 
-**XL21** (running): qualified event/people/place inventories. XL22 soft person window reverted (hurt d1 single 32→27–29).
+**XL21** (running): qualified late-dialog inventories + filter `atom:inv` out of non-list retrieval (protects single/temporal). XL22 soft person reverted.
 
 ## Dialog-1 (152 Qs) — full A-MEM sweep
 
