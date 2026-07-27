@@ -480,9 +480,12 @@ class MemoryRouter:
                             ).model_dump()
                         )
         elif re.match(
-            r"^(?:who|why|how|do|does|did|can|what is something|what kind of|"
-            r"what is a|what is the|which|where did|what happened|what was|"
-            r"what does|what did)\b",
+            # Keep this MUCH tighter than XL22-broad: what/which/where/how prefixes
+            # stole single-hop into noisy LLM person contexts (d1 single 32→27.5).
+            # Only high-precision none-intent multi shapes.
+            r"^(?:who|why|can|what is something|what happened|"
+            r"do [a-z]+ and|does .+ (?:start|work|go)|"
+            r"did .+ (?:start|go|get))\b",
             question.lower(),
         ):
             # Soft LLM-only person window for none-intent multi/OD shapes.
