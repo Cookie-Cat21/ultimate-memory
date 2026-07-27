@@ -36,7 +36,6 @@ from .aggregate import (
     aggregate_answer,
     detect_aggregate_intent,
     filter_list_items_for_question,
-    first_person,
     merge_list_answers,
 )
 from .answer import f1_ready_text, synthesize_answer
@@ -364,7 +363,8 @@ class MemoryRouter:
         agg_intent = detect_aggregate_intent(question)
         person_atom_texts: list[str] = []
         inventory_contexts: list[dict] = []
-        soft_person_texts: list[str] = []
+        # Soft person window (XL22) reverted: even tight who/why/can prefixes
+        # hit single-hop on dialog-1 (32→29). Needs category gating.
         person = agg_intent.person if agg_intent else None
         if person:
             for atom in self.store.search_atoms(person, limit=100):
@@ -479,29 +479,6 @@ class MemoryRouter:
                                 atom, score=max(atom.salience, 0.72)
                             ).model_dump()
                         )
-        elif re.match(
-            # Keep this MUCH tighter than XL22-broad: what/which/where/how prefixes
-            # stole single-hop into noisy LLM person contexts (d1 single 32→27.5).
-            # Only high-precision none-intent multi shapes.
-            r"^(?:who|why|can|what is something|what happened|"
-            r"do [a-z]+ and|does .+ (?:start|work|go)|"
-            r"did .+ (?:start|go|get))\b",
-            question.lower(),
-        ):
-            # Soft LLM-only person window for none-intent multi/OD shapes.
-            # Do NOT feed these into aggregate_answer — that path crashed single-hop
-            # when person atoms flooded extractive ranking (XL12).
-            soft = first_person(question) or probe_entity
-            if soft:
-                seen_soft: set[str] = set()
-                for atom in self.store.search_atoms(soft, limit=24):
-                    text = (atom.text or "").strip()
-                    key = text.lower()
-                    if not text or key in seen_soft:
-                        continue
-                    seen_soft.add(key)
-                    soft_person_texts.append(text)
-
         retrieved_texts = [
             str(item.get("text") or "")
             for item in rich_contexts
@@ -761,21 +738,6 @@ class MemoryRouter:
                         if len(pref) >= 12:
                             break
                     context_texts = (pref + context_texts)[: max(ctx_limit, 18)]
-                elif soft_person_texts and agg_intent is None:
-                    # None-intent multi/OD: give the LLM a compact person window.
-                    pref = []
-                    seen_p = set()
-                    for text in soft_person_texts:
-                        if " profile:" in text and len(text) > 300:
-                            continue
-                        key = text.strip().lower()
-                        if not key or key in seen_p:
-                            continue
-                        seen_p.add(key)
-                        pref.append(text.strip()[:420])
-                        if len(pref) >= 8:
-                            break
-                    context_texts = (pref + context_texts)[:18]
             try:
                 from .llm_answer import get_local_answerer
 
