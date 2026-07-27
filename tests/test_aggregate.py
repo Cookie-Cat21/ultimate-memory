@@ -366,6 +366,26 @@ class TestListUnionIntent:
             "What transgender-specific events has Caroline attended?"
         ).kind == "trans_events"
 
+    def test_holiday_from_july_date_and_filmmaker_job(self):
+        texts = ["Maria got into a car accident on July 2, 2023 near the shelter."]
+        assert (
+            aggregate_answer(
+                "Around which US holiday did Maria get into a car accident?", texts
+            )
+            == "Independence Day"
+        )
+        intent = detect_aggregate_intent(
+            "What kind of job is Joanna beginning to preform the duties of because of her movie scripts?"
+        )
+        assert intent is not None and intent.kind == "entity_infer"
+        assert (
+            aggregate_answer(
+                "What kind of job is Joanna beginning to preform the duties of because of her movie scripts?",
+                ["Joanna is writing movie scripts and performing filmmaker duties."],
+            )
+            == "filmmaker"
+        )
+
     def test_entity_infer_rejects_unrelated_catalog_hits(self):
         # XL17 open regression: Florida/filmmaker leaked into unrelated OD answers.
         texts = [

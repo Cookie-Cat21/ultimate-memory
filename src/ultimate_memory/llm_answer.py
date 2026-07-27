@@ -74,10 +74,22 @@ def _build_prompt(question: str, contexts: list[str]) -> str:
         re.match(r"^(?:would|is|are|was|were|does|did|has|have|can|could)\b", q_lower)
         or re.search(r"\banswer yes or no\b", q_lower)
     )
+    inferential = bool(
+        re.search(r"\b(?:might|likely|would|could|potentially|suspected)\b", q_lower)
+        or re.search(r"\b(?:around which|based on|underlying condition)\b", q_lower)
+    )
     if yn_shape and not starts_with_wh:
         style = (
             "For this yes/no or would-question, answer like LoCoMo golds: "
             "'Likely yes', 'Likely no', 'Yes', 'No', or 'Yes; short reason'. "
+            "If the question asks which option (book/author/team), name the option, not Yes/No. "
+        )
+    elif inferential and starts_with_wh:
+        style = (
+            "This is an inferential open-domain question. Return ONE short concrete "
+            "entity (holiday, state, job title, technique, composer, org, nickname, "
+            "condition, meat, game, park). Example: July 2 near US holiday → "
+            "'Independence Day'. Do not write a sentence. "
         )
     elif starts_with_wh:
         style = (

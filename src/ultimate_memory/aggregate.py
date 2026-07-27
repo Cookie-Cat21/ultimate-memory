@@ -957,6 +957,9 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
             re.search(r"\b(?:might|likely|would|could|potentially|suspected)\b", q_lower)
             and re.search(r"\b(?:career|job|state|country|exercise)\b", q_lower)
         )
+        # Script/film duty probes are OD entity (filmmaker), not single-hop spans.
+        or re.search(r"\b(?:movie scripts?|screenplays?)\b.+\b(?:job|duties|perform)\b|"
+                     r"\bkind of job\b.+\b(?:movie|film|script)", q_lower)
     ):
         return AggregateIntent("entity_infer", person, topic=q_lower)
     if re.match(r"^who is\b", q_lower):
@@ -2004,9 +2007,17 @@ def _entity_infer(topic: str, texts: list[str]) -> str | None:
         if deg:
             return ", ".join(deg)
     if "holiday" in topic and re.search(
-        r"\bindependence day\b|\b4th of july\b|\bjuly 4\b", blob_l
+        r"\bindependence day\b|\b4th of july\b|\bjuly 4\b|"
+        r"\bjuly\s*(?:2|3|4|02|03|04)\b|\b0?2\s+july\b|\b0?4\s+july\b",
+        blob_l,
     ):
         return "Independence Day"
+    # "What kind of job … movie scripts" often misses entity_infer modal cues.
+    if re.search(r"\b(?:job|career)\b", topic) and re.search(
+        r"\b(?:film(?:maker| making)|movie scripts?|screenplay)\b", blob_l
+    ):
+        if re.search(r"\b(?:film|movie|script|screenplay)\b", topic):
+            return "filmmaker"
     if "nickname" in topic:
         quoted = re.search(r"[\"']([A-Z][a-z]{1,8})[\"']", blob)
         if quoted:
