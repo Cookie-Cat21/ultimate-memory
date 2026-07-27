@@ -36,7 +36,7 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL17**: overall **34.98**, single **38.59** ✓, multi **28.01**, temporal **32.91** ✓, open **30.81** (entity_infer catalog regression).
 
-**XL18**: overall **35.48** (best), single **38.85** ✓, multi **29.36** (best; still < A-MEM 45.85), temporal **32.54** ✓, open **33.83**. Dialog-1 multi **79.5**. Scoreboard vs A-MEM **2/4**; vs MemGPT **3/4**.
+**XL18**: overall **35.48** (best overall), single **38.85** ✓, multi **29.36**, temporal **32.54** ✓, open **33.83**. Dialog-1 multi **79.5**. Scoreboard vs A-MEM **2/4**; vs MemGPT **3/4**.
 
 **XL19** (obs-rank + gated wider retrieval): overall **34.64** — multi **29.11** / open **31.6** regressed vs XL18. Reverted obs hard-prefer + limit bump.
 
