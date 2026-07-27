@@ -148,19 +148,6 @@ class MemoryRouter:
         use_llm: bool | None = None,
     ) -> dict:
         """Retrieve memory contexts and synthesize an answer (extractive or optional local LLM)."""
-        # Widen retrieval only for list/OD aggregate kinds. Specialized short
-        # collectors and non-aggregate questions keep the default limit so
-        # single-hop/temporal contexts are not diluted.
-        early_agg = detect_aggregate_intent(question)
-        if early_agg is not None and early_agg.kind in {
-            "inventory_union",
-            "how_many",
-            "entity_infer",
-            "hypothetical",
-            "both_intersection",
-        }:
-            limit = max(limit, 28)
-
         # Keyword-dense query helps FTS more than full natural-language questions.
         stop = {
             "when", "what", "where", "who", "whom", "which", "how", "why", "did", "does",
@@ -663,29 +650,25 @@ class MemoryRouter:
         elif should_use_llm:
             llm_pool = merge_contexts(rich_contexts, inventory_contexts)
             # Prefer atomic / dialogue snippets first for the local answerer.
-            def _llm_context_rank(item: dict) -> tuple[int, float]:
-                text = str(item.get("text") or "")
-                item_id = str(item.get("id") or "")
-                # Prefer distilled LoCoMo observations/events over raw chat turns —
-                # late-dialog multi/open need these for evidence + list synthesis.
-                if item_id.startswith(("atom:obs:", "atom:evt:", "atom:inv:")):
-                    tier = 0
-                elif (
-                    str((item.get("provenance") or {}).get("source")) == "atomic-memory"
-                    or item_id.startswith(("atom:", "turn:"))
-                    or text.startswith("[D")
-                    or " profile:" in text
-                    or " activities:" in text
-                    or " items:" in text
-                ):
-                    tier = 1
-                else:
-                    tier = 2
-                return (tier, -float(item.get("score") or 0.0))
-
+            # Prefer atomic / dialogue snippets first for the local answerer.
+            # (XL19 tried hard-preferring atom:obs/evt/inv and regressed open
+            # 33.8→31.6 and overall 35.5→34.6 — keep the broader atomic tier.)
             ordered = sorted(
                 [item for item in llm_pool if item.get("text")],
-                key=_llm_context_rank,
+                key=lambda item: (
+                    0
+                    if (
+                        str((item.get("provenance") or {}).get("source"))
+                        == "atomic-memory"
+                        or str(item.get("id") or "").startswith(("atom:", "turn:"))
+                        or str(item.get("text") or "").startswith("[D")
+                        or " profile:" in str(item.get("text") or "")
+                        or " activities:" in str(item.get("text") or "")
+                        or " items:" in str(item.get("text") or "")
+                    )
+                    else 1,
+                    -float(item.get("score") or 0.0),
+                ),
             )
             # For list QA, bias toward the wide person-atom window.
             if should_list_answer and person_atom_texts:
