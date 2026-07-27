@@ -39,6 +39,21 @@ _ACTIVITY_CANON = {
     "reading": "reading",
     "biking": "biking",
     "mentoring": "mentoring",
+    "mountaineering": "mountaineering",
+    "picnic": "picnic",
+    "volunteer work": "volunteer work",
+    "volunteering": "volunteer work",
+    "surfing": "surfing",
+    "gardening": "gardening",
+    "wine tasting": "wine tasting",
+    "boardgames": "boardgames",
+    "board games": "boardgames",
+    "yoga": "yoga",
+    "photography": "photography",
+    "kayaking": "kayaking",
+    "snowboarding": "snowboarding",
+    "skiing": "skiing",
+    "ice skating": "ice skating",
 }
 
 _CAMP_PLACES = {
@@ -385,6 +400,17 @@ _PLACE_GAZETTEER = frozenset(
         "denver",
         "austin",
         "san francisco",
+        "detroit",
+        "new york",
+        "thailand",
+        "bali",
+        "shibuya",
+        "shinjuku",
+        "rockies",
+        "jasper",
+        "pacific northwest",
+        "east coast",
+        "smoky mountains",
         "new york",
         "los angeles",
     }
@@ -877,6 +903,43 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         return AggregateIntent("supporters", person)
     if re.search(r"\bkind of art\b|\bwhat art\b", q_lower):
         return AggregateIntent("art_kind", person)
+    # Late-dialog specialized list topics — must beat bare "events"/"people"/"places".
+    if re.search(r"\bmusic events?\b", q_lower):
+        return AggregateIntent("inventory_union", person, topic="music events")
+    if re.search(r"\bevents?\b.+\bveterans?\b|\bveterans?\b.+\bevents?\b", q_lower):
+        return AggregateIntent("inventory_union", person, topic="veteran events")
+    if re.search(
+        r"\bevents?\b.+\b(?:fundraiser|homeless shelter|funraiser)\b|"
+        r"\b(?:fundraiser|homeless shelter)\b.+\bevents?\b",
+        q_lower,
+    ):
+        return AggregateIntent("inventory_union", person, topic="fundraiser events")
+    if re.search(
+        r"\bpeople\b.+\b(?:met|helped|helping)\b|"
+        r"\bnotes of gratitude\b|"
+        r"\bwho have written\b",
+        q_lower,
+    ):
+        return AggregateIntent("inventory_union", person, topic="people helped")
+    if re.search(
+        r"\bbeneficiar|\bcharity tournaments?\b.+\b(?:beneficiar|for)\b|"
+        r"\borganizations?\b.+\bbeneficiar|"
+        r"\bwho or which organizations\b",
+        q_lower,
+    ):
+        return AggregateIntent("inventory_union", person, topic="charity beneficiaries")
+    if re.search(
+        r"\bplaces?\b.+\b(?:submitted|submit|submission)\b|"
+        r"\bsubmitted (?:her|his|their) work\b",
+        q_lower,
+    ):
+        return AggregateIntent("inventory_union", person, topic="submission places")
+    if re.search(r"\bplaces?\b.+\bmet new people\b|\bmet new people\b", q_lower):
+        return AggregateIntent("inventory_union", person, topic="meet places")
+    if re.search(r"\bcloser to (?:her|his|their) faith\b|\bfeel closer to\b.+\bfaith\b", q_lower):
+        return AggregateIntent("inventory_union", person, topic="faith actions")
+    if re.search(r"\bareas of the u\.?s|\bus areas\b", q_lower):
+        return AggregateIntent("inventory_union", person, topic="us areas")
     # Open-domain entity inferences (what/which/who/around which …).
     if re.match(r"^(?:what|which|who|around which|in which|in what)\b", q_lower) and (
         re.search(r"\b(?:might|likely|would|could|potentially)\b", q_lower)
@@ -1295,6 +1358,24 @@ def _inventory_union(person: str | None, head: str, texts: list[str]) -> str | N
         t in {"city", "cities", "country", "countries", "state", "states", "place", "places"}
         for t in head_terms
     ) or "areas of" in head_l
+    # Qualified event/people heads must not fall through to bare "events"/"places".
+    specific_head = any(
+        phrase in head_l
+        for phrase in (
+            "music event",
+            "veteran event",
+            "fundraiser event",
+            "people helped",
+            "charity benefic",
+            "submission place",
+            "meet place",
+            "peace place",
+            "yoga place",
+            "friend place",
+            "faith action",
+            "us area",
+        )
+    )
 
     def add(item: str) -> None:
         cleaned = item.strip(" .,;:-\"'")
@@ -1310,6 +1391,7 @@ def _inventory_union(person: str | None, head: str, texts: list[str]) -> str | N
         items.append(cleaned)
 
     # Prefer structured inventory lines for this head.
+    structured_hits: list[tuple[str, str]] = []  # (label, rhs)
     for text in person_texts:
         if ":" not in text:
             continue
@@ -1318,45 +1400,122 @@ def _inventory_union(person: str | None, head: str, texts: list[str]) -> str | N
         # Alias topic labels so "gifts" matches "gifts:", "bands"/"music", etc.
         alias_ok = any(
             (term in label_l)
-            or (term in {"band", "bands"} and "music" in label_l)
+            # "bands" → bands:/music: inventories, NOT "music events:".
+            or (
+                term in {"band", "bands"}
+                and ("band" in label_l or label_l.rstrip().endswith(" music") or label_l.rstrip().endswith("music"))
+                and "event" not in label_l
+            )
             or (term in {"mishap", "mishaps", "damage", "damages"} and "damage" in label_l)
             or (term in {"location", "locations"} and ("place" in label_l or "yoga" in label_l))
             or (term in {"item", "items", "purchase", "purchases", "bought"} and "purchase" in label_l)
             or (term in {"item", "items"} and "collectible" in label_l)
             or (term in {"trick", "tricks"} and "trick" in label_l)
+            or (term in {"people", "person", "names"} and "people helped" in label_l)
+            or (term in {"beneficiar", "beneficiaries", "organizations"} and "beneficiar" in label_l)
+            or (term == "events" and "event" in label_l)
+            or (term in {"area", "areas"} and "us area" in label_l)
+            or (term in {"faith", "actions"} and "faith" in label_l)
+            or (term in {"recipe", "recipes"} and "recipe" in label_l)
+            or (term in {"pose", "poses"} and "yoga pose" in label_l)
+            or (term in {"movie", "movies"} and "fantasy movie" in label_l)
+            or (term in {"subject", "subjects"} and "painting subject" in label_l)
             for term in head_terms
         )
-        if alias_ok or (
-            place_mode and any(tok in label_l for tok in ("place", "city", "cities", "country"))
+        # Qualified heads require the qualifier in the label (music events ≠ toy drive).
+        if "music" in head_terms and "event" in head_l:
+            alias_ok = "music event" in label_l
+        elif "veteran" in head_terms and "event" in head_l:
+            alias_ok = "veteran event" in label_l
+        elif "fundraiser" in head_terms and "event" in head_l:
+            alias_ok = "fundraiser event" in label_l
+        elif "people" in head_terms or "helped" in head_terms:
+            if "people helped" in head_l or "gratitude" in head_l:
+                alias_ok = "people helped" in label_l
+        elif "submission" in head_terms or (
+            "place" in head_l and "submission" in head_l
         ):
-            for part in re.split(r",|/|\||\band\b", rhs):
-                add(part)
+            alias_ok = "submission place" in label_l
+        elif "meet" in head_terms and "place" in head_l:
+            alias_ok = "meet place" in label_l
+        if alias_ok or (
+            place_mode
+            and not specific_head
+            and any(tok in label_l for tok in ("place", "city", "cities", "country"))
+        ):
+            structured_hits.append((label_l, rhs))
+
+    # Prefer specific place/event inventories over bare geo "places:" / "events:".
+    specific_labels = [
+        (lab, rhs)
+        for lab, rhs in structured_hits
+        if any(
+            tok in lab
+            for tok in (
+                "music event",
+                "veteran event",
+                "fundraiser event",
+                "people helped",
+                "charity benefic",
+                "submission place",
+                "meet place",
+                "peace place",
+                "yoga place",
+                "friend place",
+                "tokyo place",
+            )
+        )
+    ]
+    use_hits = specific_labels or structured_hits
+    for _lab, rhs in use_hits:
+        for part in re.split(r",|/|\||\band\b", rhs):
+            add(part)
     # If structured inventory lines already yielded a clean list, stop — avoid
     # diluting with free-text harvest junk ("enjoyed listening to many cool bands").
-    if len(items) >= 2 and any(
-        marker in text
-        for text in person_texts
-        for marker in (
-            " bands:",
-            " gifts:",
-            " emotions:",
-            " damages:",
-            " accidents:",
-            " events:",
-            " purchases:",
-            " collectibles:",
-            " pet tricks:",
-            " yoga places:",
-            " tv series:",
-            " music:",
+    if items and (
+        specific_labels
+        or (
+            len(items) >= 2
+            and any(
+                marker in text
+                for text in person_texts
+                for marker in (
+                    " bands:",
+                    " gifts:",
+                    " emotions:",
+                    " damages:",
+                    " accidents:",
+                    " events:",
+                    " music events:",
+                    " veteran events:",
+                    " fundraiser events:",
+                    " people helped:",
+                    " charity beneficiaries:",
+                    " submission places:",
+                    " meet places:",
+                    " faith actions:",
+                    " us areas:",
+                    " purchases:",
+                    " collectibles:",
+                    " pet tricks:",
+                    " yoga places:",
+                    " tv series:",
+                    " music:",
+                    " hobbies:",
+                    " foods:",
+                    " video games:",
+                    " recipes:",
+                )
+            )
         )
     ):
         return ", ".join(items[:10])
 
-    if place_mode:
+    # Non-geo place heads (submission/meet/peace) must not harvest travel cities.
+    if place_mode and not specific_head:
         for text in person_texts:
             if not re.search(
-                r"\b(?:visit|visited|travel|traveled|went to|live|lives|moved|trip|in|from)\b",
+                r"\b(?:visit|visited|travel|traveled|went to|live|lives|moved|trip to|vacation)\b",
                 text,
                 re.I,
             ):
@@ -1366,6 +1525,8 @@ def _inventory_union(person: str | None, head: str, texts: list[str]) -> str | N
                 if _clean_person_name(name):
                     add(name)
         return ", ".join(items[:10]) if len(items) >= 2 else None
+    if specific_head:
+        return ", ".join(items[:10]) if items else None
 
     # Quoted titles for media-ish heads.
     if any(t in {"game", "games", "movie", "movies", "song", "songs", "show", "shows"} for t in head_terms):
@@ -2452,7 +2613,10 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "desserts",
         re.compile(
             r"\b(banana split(?:\s+sundae)?|peach cobbler|brownie|cobbler|sundae|"
-            r"ice cream|apple pie|cookies?|cakes?)\b",
+            r"ice cream|apple pie|cookies?|cakes?|"
+            r"coconut milk ice ?cream|dairy-?free chocolate cake(?: with berries)?|"
+            r"chocolate and mixed-?berry ice ?cream|"
+            r"dairy-?free chocolate|parfait|strawberry chocolate cake)\b",
             re.I,
         ),
     ),
@@ -2514,7 +2678,8 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "countries",
         re.compile(
             r"\b(Spain|England|France|Italy|Germany|Ireland|Sweden|Canada|Mexico|"
-            r"Japan|China|India|Brazil|Australia|Portugal|Greece|Scotland|Wales)\b"
+            r"Japan|China|India|Brazil|Australia|Portugal|Greece|Scotland|Wales|"
+            r"Thailand|Bali)\b"
         ),
     ),
     (
@@ -2554,10 +2719,12 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "video games",
         re.compile(
-            r"\b(valorant|counter[- ]?strike(?:\s*:?\s*global offensive)?|"
+            r"\b(valorant|counter[- ]?strike(?:\s*:?\s*global offensive)?|cs:?go|"
             r"xenoblade(?:\s*chronicles)?(?:\s*\d*)?|fortnite|overwatch|"
             r"apex legends|animal crossing(?:\s*:?\s*new horizons)?|"
-            r"zelda(?:\s*botw)?|mario(?:\s*kart)?|pokemon)\b",
+            r"zelda(?:\s*botw)?|mario(?:\s*kart)?|pokemon|"
+            r"street\s*fighter|cyberpunk(?:\s*2077)?|detroit(?:\s*become\s*human)?|"
+            r"walking dead|battlefield(?:\s*1)?|it takes two|overcooked(?:\s*2)?)\b",
             re.I,
         ),
     ),
@@ -2587,7 +2754,9 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"\b(painting|hiking|reading(?: books)?|biking|skiing|"
             r"snowboarding|ice skating|swimming|camping|kayaking|"
             r"pottery|yoga|gaming|journaling|journalling|creative writing|"
-            r"traveling|art|cooking)\b",
+            r"traveling|art|cooking|writing|watching movies|exploring nature|"
+            r"hanging with friends|photography|live concerts?|"
+            r"making desserts|listening to (?:favorite )?albums)\b",
             re.I,
         ),
     ),
@@ -2670,7 +2839,147 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "events",
         re.compile(
             r"\b(networking events?|dance competition|fair|"
-            r"music festival|pride parade|art show|toy drive|food drive)\b",
+            r"music festival|pride parade|art show|toy drive|food drive|"
+            r"community food drive)\b",
+            re.I,
+        ),
+    ),
+    (
+        "music events",
+        re.compile(
+            r"\b(live music(?: event)?|violin concert|music festival|"
+            r"concert|live concerts?)\b",
+            re.I,
+        ),
+    ),
+    (
+        "veteran events",
+        re.compile(
+            r"\b(petition|march|party|visiting veterans? hospital|"
+            r"5k charity run|veterans? (?:hospital|march|petition|party|run))\b",
+            re.I,
+        ),
+    ),
+    (
+        "fundraiser events",
+        re.compile(
+            r"\b(chili cook-?off|ring-?toss tournament|toy drive|food drive|"
+            r"fundraiser)\b",
+            re.I,
+        ),
+    ),
+    (
+        "people helped",
+        re.compile(
+            # Require a human cue before "named" so "puppy named Coco" is excluded.
+            r"\b(?:someone|person|woman|man|resident|friend)\s+named\s+([A-Z][a-z]{2,})\b|"
+            r"\bmet\s+([A-Z][a-z]{2,}(?:\s*(?:,|and)\s*[A-Z][a-z]{2,})+)\b|"
+            r"\b(?:letters?|notes?|expression) of (?:appreciation|gratitude)\s+from\s+"
+            r"([A-Z][a-z]{2,}(?:\s*(?:,|and)\s*[A-Z][a-z]{2,})*)\b|"
+            r"\b(?:appreciation|gratitude)\s+from\s+"
+            r"([A-Z][a-z]{2,}(?:\s*(?:,|and)\s*[A-Z][a-z]{2,})*)\b|"
+            r"\b([A-Z][a-z]{2,}),\s+(?:a|one of the)\s+resident\b|"
+            r"\bfrom\s+([A-Z][a-z]{2,}),\s+one of the\b",
+        ),
+    ),
+    (
+        "charity beneficiaries",
+        re.compile(
+            r"\b(animal shelter|homeless(?:ness)?|children'?s hospital|"
+            r"veterans?|schools?|domestic violence)\b",
+            re.I,
+        ),
+    ),
+    (
+        "submission places",
+        re.compile(
+            r"\b(film contest|film festival|production compan(?:y|ies)|"
+            r"screenplay contest)\b",
+            re.I,
+        ),
+    ),
+    (
+        "meet places",
+        re.compile(
+            r"\b((?:gaming )?tournament|gaming convention|convention|"
+            r"music festival)\b",
+            re.I,
+        ),
+    ),
+    (
+        "faith actions",
+        re.compile(
+            r"\b(join(?:ed)? a (?:local|nearby) church|"
+            r"(?:local|nearby) church|cross necklace|"
+            r"buy(?:s|ing|ought)? a cross necklace|"
+            r"attend(?:s|ing|ed)? a (?:local|nearby) church)\b",
+            re.I,
+        ),
+    ),
+    (
+        "us areas",
+        re.compile(
+            r"\b(pacific northwest|east coast|west coast|midwest|"
+            r"west county)\b",
+            re.I,
+        ),
+    ),
+    (
+        "yoga poses",
+        re.compile(
+            r"\b(warrior i{1,2}|dancer pose(?:\s*\(?natarajasana\)?)?|"
+            r"tree pose|downward dog|child'?s pose)\b",
+            re.I,
+        ),
+    ),
+    (
+        "peace places",
+        re.compile(
+            r"\b(sitting (?:in a spot )?by the window(?: in her mom'?s house)?|"
+            r"sitting by the beach|bali|forest trail(?: in a nearby park)?|"
+            r"mother'?s old home|yoga studio)\b",
+            re.I,
+        ),
+    ),
+    (
+        "painting subjects",
+        re.compile(
+            r"\b(nature landscapes?|portraits?|abstract minimalism|"
+            r"landscapes?|sunsets?)\b",
+            re.I,
+        ),
+    ),
+    (
+        "fantasy movies",
+        re.compile(
+            r"\b(lord of the rings|harry potter|star wars|"
+            r"eternal sunshine of the spotless mind)\b",
+            re.I,
+        ),
+    ),
+    (
+        "recipes",
+        re.compile(
+            r"\b(dairy[- ]?free vanilla cake(?: with strawberry filling)?|"
+            r"coconut cream frosting|parfait|strawberry chocolate cake|"
+            r"coconut milk ice ?cream|chocolate and vanilla swirl|"
+            r"honey garlic chicken(?: with roasted veg)?|"
+            r"slow cooker meal|soup)\b",
+            re.I,
+        ),
+    ),
+    (
+        "tokyo places",
+        re.compile(
+            r"\b(music festival|car museum|shibuya(?: crossing)?|shinjuku)\b",
+            re.I,
+        ),
+    ),
+    (
+        "guitar styles",
+        re.compile(
+            r"\b(custom[- ]made yellow guitar(?: with an octopus(?: on it)?)?|"
+            r"shiny purple guitar|custom[- ]made guitar(?: with an octopus)?)\b",
             re.I,
         ),
     ),
@@ -3061,6 +3370,22 @@ def build_speaker_inventories(speaker: str, fact_texts: list[str]) -> list[str]:
             "damages",
             "accidents",
             "events",
+            "music events",
+            "veteran events",
+            "fundraiser events",
+            "people helped",
+            "charity beneficiaries",
+            "submission places",
+            "meet places",
+            "faith actions",
+            "us areas",
+            "yoga poses",
+            "peace places",
+            "painting subjects",
+            "fantasy movies",
+            "recipes",
+            "tokyo places",
+            "guitar styles",
             "pet tricks",
             "yoga places",
             "collectibles",

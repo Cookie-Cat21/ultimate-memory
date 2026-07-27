@@ -42,6 +42,8 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL20** (running): late-dialog topic inventories (bands/gifts/damages/events/purchases/…) + fold event_summary into inventory construction; keep XL18 ranking.
 
+**XL21** (queued after XL20): qualified late-dialog list heads — music/veteran/fundraiser events, people helped, charity beneficiaries, submission/meet places, faith actions — so bare `events`/`places` stop harvesting junk. Offline multi aggregate mean ~27% (conv-41 multi ~49%).
+
 ## Dialog-1 (152 Qs) — full A-MEM sweep
 
 | Model | single | multi | temporal | open |

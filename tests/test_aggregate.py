@@ -304,6 +304,54 @@ class TestListUnionIntent:
         )
         assert bands and "Aerosmith" in bands
 
+    def test_qualified_event_and_people_inventories(self):
+        facts = [
+            "John attended a live music event and a violin concert last month.",
+            "John participated in a petition, a march, and a 5K charity run for veterans.",
+            "John also helped at a toy drive and food drive.",
+            "Maria met David and Jean while volunteering and later got notes of gratitude from Cindy and Laura.",
+            "Maria is planning a chili cook-off and ring-toss tournament for the homeless shelter fundraiser.",
+            "Maria joined a local church and bought a cross necklace to feel closer to her faith.",
+            "Joanna submitted her work to a film contest and a film festival.",
+            "Joanna visited Woodhaven on a trip to the Midwest last summer.",
+            "Nate met new people at a tournament and a gaming convention.",
+        ]
+        john_inv = build_speaker_inventories("John", facts)
+        maria_inv = build_speaker_inventories("Maria", facts)
+        joanna_inv = build_speaker_inventories("Joanna", facts)
+        nate_inv = build_speaker_inventories("Nate", facts)
+        music = aggregate_answer("What music events has John attended?", john_inv)
+        assert music and "violin" in music.lower()
+        assert "toy drive" not in (music or "").lower()
+        veterans = aggregate_answer(
+            "What events for veterans has John participated in?", john_inv
+        )
+        assert veterans and "petition" in veterans.lower()
+        assert "toy drive" not in (veterans or "").lower()
+        people = aggregate_answer(
+            "What people has Maria met and helped while volunteering?", maria_inv
+        )
+        assert people
+        for name in ("David", "Jean", "Cindy", "Laura"):
+            assert name in people
+        faith = aggregate_answer(
+            "What has Maria done to feel closer to her faith?", maria_inv
+        )
+        assert faith and "church" in faith.lower()
+        places = aggregate_answer(
+            "What places has Joanna submitted her work to?", joanna_inv
+        )
+        assert places and "film" in places.lower()
+        assert "Woodhaven" not in (places or "")
+        meet = aggregate_answer("What places has Nate met new people?", nate_inv)
+        assert meet and ("tournament" in meet.lower() or "convention" in meet.lower())
+        assert detect_aggregate_intent(
+            "What music events has John attended?"
+        ).topic == "music events"
+        assert detect_aggregate_intent(
+            "What events for veterans has John participated in?"
+        ).topic == "veteran events"
+
     def test_specialized_intents_before_list(self):
         assert detect_aggregate_intent(
             "What career path has Caroline decided to persue?"
