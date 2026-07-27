@@ -36,6 +36,7 @@ from .aggregate import (
     aggregate_answer,
     detect_aggregate_intent,
     filter_list_items_for_question,
+    first_person,
     merge_list_answers,
 )
 from .answer import f1_ready_text, synthesize_answer
@@ -146,8 +147,13 @@ class MemoryRouter:
         *,
         max_hop_searches: int = MAX_HOP_SEARCHES,
         use_llm: bool | None = None,
+        category: str | None = None,
     ) -> dict:
-        """Retrieve memory contexts and synthesize an answer (extractive or optional local LLM)."""
+        """Retrieve memory contexts and synthesize an answer (extractive or optional local LLM).
+
+        Optional *category* (e.g. LoCoMo ``multi_hop`` / ``open_domain``) enables
+        safe person-window boosts that must not run on single_hop/temporal.
+        """
         # Keyword-dense query helps FTS more than full natural-language questions.
         stop = {
             "when", "what", "where", "who", "whom", "which", "how", "why", "did", "does",
@@ -363,8 +369,9 @@ class MemoryRouter:
         agg_intent = detect_aggregate_intent(question)
         person_atom_texts: list[str] = []
         inventory_contexts: list[dict] = []
-        # Soft person window (XL22) reverted: even tight who/why/can prefixes
-        # hit single-hop on dialog-1 (32→29). Needs category gating.
+        # Soft LLM-only person window is category-gated (XL23). Ungated prefixes
+        # hit single-hop (XL22: d1 single 32→27–29).
+        soft_person_texts: list[str] = []
         # Drop inventory atoms from the general extractive/LLM pool unless a list
         # aggregate intent is active. XL21's extra inv lines otherwise drown
         # single/temporal spans (d1 single 32→29.5, temporal 25→23.5).
@@ -403,6 +410,26 @@ class MemoryRouter:
                 if not str(item.get("id") or "").startswith("atom:inv:")
             ]
         person = agg_intent.person if agg_intent else None
+        cat_l = (category or "").strip().lower()
+        if (
+            not person
+            and cat_l in {"multi_hop", "open_domain"}
+            and re.match(
+                r"^(?:who|why|how|can|what is something|what happened|"
+                r"what kind of|what is|which|where|do|does|did)\b",
+                question.lower(),
+            )
+        ):
+            soft = first_person(question) or probe_entity
+            if soft:
+                seen_soft: set[str] = set()
+                for atom in self.store.search_atoms(soft, limit=28):
+                    text = (atom.text or "").strip()
+                    key = text.lower()
+                    if not text or key in seen_soft:
+                        continue
+                    seen_soft.add(key)
+                    soft_person_texts.append(text)
         if person:
             for atom in self.store.search_atoms(person, limit=100):
                 if atom.text:
@@ -753,18 +780,28 @@ class MemoryRouter:
                         list_contexts.append(text.strip())
                 context_texts = list_contexts[:28]
             else:
-                ctx_limit = 22 if (agg_intent and agg_intent.kind in {"hypothetical", "entity_infer"}) else 14
+                od_or_infer = bool(
+                    cat_l == "open_domain"
+                    or (agg_intent and agg_intent.kind in {"hypothetical", "entity_infer"})
+                )
+                ctx_limit = 24 if od_or_infer else 14
                 context_texts = [str(item.get("text") or "")[:500] for item in ordered[:ctx_limit]]
-                # Only prepend person facts for OD/inferential aggregate intents.
-                if person_atom_texts and agg_intent and agg_intent.kind in {
-                    "hypothetical",
-                    "entity_infer",
-                    "career",
-                    "how_many",
-                }:
+                # Prepend person facts for OD/inferential aggregates, or category-gated
+                # soft person window for none-intent multi/open.
+                pref_source = person_atom_texts if (
+                    person_atom_texts
+                    and agg_intent
+                    and agg_intent.kind in {
+                        "hypothetical",
+                        "entity_infer",
+                        "career",
+                        "how_many",
+                    }
+                ) else (soft_person_texts if soft_person_texts and cat_l in {"multi_hop", "open_domain"} else [])
+                if pref_source:
                     pref: list[str] = []
                     seen_p: set[str] = set()
-                    for text in person_atom_texts:
+                    for text in pref_source:
                         if " profile:" in text and len(text) > 300:
                             continue
                         key = text.strip().lower()
@@ -772,9 +809,9 @@ class MemoryRouter:
                             continue
                         seen_p.add(key)
                         pref.append(text.strip()[:420])
-                        if len(pref) >= 12:
+                        if len(pref) >= (14 if cat_l == "open_domain" else 10):
                             break
-                    context_texts = (pref + context_texts)[: max(ctx_limit, 18)]
+                    context_texts = (pref + context_texts)[: max(ctx_limit, 20)]
             try:
                 from .llm_answer import get_local_answerer
 

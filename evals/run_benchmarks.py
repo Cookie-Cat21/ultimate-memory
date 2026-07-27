@@ -478,11 +478,13 @@ def run_locomo(
             question = qa["question"]
             gold = qa["answer"]
             golds = gold if isinstance(gold, list) else [str(gold)]
+            cat_name = CAT_NAMES.get(cat, f"cat_{cat}")
             result = router.answer(
                 question,
                 project_path=str(work / "project"),
                 limit=20,
                 use_llm=use_llm,
+                category=cat_name,
             )
             answer = result["answer"]
             f1 = token_f1(answer, golds)
@@ -490,7 +492,6 @@ def run_locomo(
             ev = evidence_hit(contexts, qa.get("evidence") or [], conversation)
             evidence_sum += ev
             evidence_n += 1
-            cat_name = CAT_NAMES.get(cat, f"cat_{cat}")
             ok = f1 >= 0.3
             detail = {
                 "sample_id": sample_id,
