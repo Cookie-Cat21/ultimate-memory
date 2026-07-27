@@ -42,7 +42,7 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL20**: overall **35.46**, single **38.13** ✓, multi **31.46** (best; still < A-MEM 45.85), temporal **32.40** ✓, open **34.04**. Scoreboard vs A-MEM **2/4**; vs MemGPT **3/4**.
 
-**XL24** (running): XL21 base + multi-only soft person (OD soft/widen reverted).
+**XL25** (running): multi-only soft person + OD Independence Day/filmmaker cues + inferential LLM prompt. XL24 aborted early for XL25.
 
 **XL23**: overall **35.91** — multi **34.74** (tied XL21) but open **31.88** regressed (OD soft person + wider ctx). Soft person now multi-only; OD wider ctx reverted.
 
