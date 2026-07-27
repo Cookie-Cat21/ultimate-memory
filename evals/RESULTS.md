@@ -16,7 +16,7 @@ Offline token-F1 vs A-MEM Table 1 (GPT-4o-mini). Mem0/Zep **J** scores need an L
 | Category | Ours (best) | Model | A-MEM | MemGPT |
 |---|---:|---|---:|---:|
 | single_hop | **39.82** ✓ | flan-t5-xl | 27.02 | 26.65 |
-| multi_hop | **29.36** (XL18) | flan-t5-xl | 45.85 | 25.52 ✓ |
+| multi_hop | **31.46** (XL20) | flan-t5-xl | 45.85 | 25.52 ✓ |
 | temporal | **33.91** ✓ | flan-t5-xl | 12.14 | 9.15 |
 | open_domain | **34.79** | flan-t5-xl (XL13) | 44.65 | 41.04 |
 
@@ -40,11 +40,9 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL19** (obs-rank + gated wider retrieval): overall **34.64** — multi **29.11** / open **31.6** regressed vs XL18. Reverted obs hard-prefer + limit bump.
 
-**XL20** (running): late-dialog topic inventories (bands/gifts/damages/events/purchases/…) + fold event_summary into inventory construction; keep XL18 ranking.
+**XL20**: overall **35.46**, single **38.13** ✓, multi **31.46** (best; still < A-MEM 45.85), temporal **32.40** ✓, open **34.04**. Scoreboard vs A-MEM **2/4**; vs MemGPT **3/4**.
 
-**XL22** (queued): soft LLM-only person window for none-intent who/why/how/what-kind multi/OD.
-
-**XL21** (queued after XL20): qualified late-dialog list heads — music/veteran/fundraiser events, people helped, charity beneficiaries, submission/meet places, faith actions — so bare `events`/`places` stop harvesting junk. Offline multi aggregate mean ~27% (conv-41 multi ~49%).
+**XL21+22** (running): XL21 qualified event/people/place inventories + XL22 soft LLM-only person window for none-intent multi/OD.
 
 ## Dialog-1 (152 Qs) — full A-MEM sweep
 
