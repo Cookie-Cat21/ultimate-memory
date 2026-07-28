@@ -517,6 +517,39 @@ class TestListUnionIntent:
             )
             == "chicken"
         )
+        assert detect_aggregate_intent(
+            "What pets wouldn't cause any discomfort to Joanna?"
+        ).kind == "entity_infer"
+        assert (
+            aggregate_answer(
+                "What pets wouldn't cause any discomfort to Joanna?",
+                ["Joanna is allergic to most reptiles and animals with fur."],
+            )
+            and "Hairless" in aggregate_answer(
+                "What pets wouldn't cause any discomfort to Joanna?",
+                ["Joanna is allergic to most reptiles and animals with fur."],
+            )
+        )
+        assert (
+            aggregate_answer(
+                "What is the game with different colored cards that was John talking about with James?",
+                [
+                    "There were multi-colored cards with numbers. You can only place a card "
+                    "with the same color or number on your opponent's card."
+                ],
+            )
+            == "UNO"
+        )
+        assert (
+            aggregate_answer(
+                "What is the board game where you have to find the imposter that John mentions to James?",
+                [
+                    "I've been playing one more game with friends these days. "
+                    "It's a game to figure out who the impostors are and it's super fun."
+                ],
+            )
+            == "Mafia"
+        )
 
     def test_food_hobby_inventories(self):
         facts = [

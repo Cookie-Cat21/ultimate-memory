@@ -947,13 +947,13 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         q_lower,
     )
     if od_wh and (
-        re.search(r"\b(?:might|likely|would|could|potentially)\b", q_lower)
+        re.search(r"\b(?:might|likely|would|could|potentially|wouldn'?t)\b", q_lower)
         or re.search(
             r"\b(?:nickname|console|holiday|degree|technique|composer|endorsement|"
             r"condition|allerg(?:y|ies)|meat|shop|national park|"
-            r"hobby|board game|indoor activity|"
+            r"hobby|board game|indoor activity|discomfort|"
             r"game with|health problems?|how old|card game|"
-            r"charity organization|yoga|exercises?)\b",
+            r"charity organization|yoga|exercises?|imposter|colored cards)\b",
             q_lower,
         )
         # Inferential career/job/state/country probes — require modal/soft language
@@ -2229,10 +2229,21 @@ def _entity_infer(topic: str, texts: list[str]) -> str | None:
         return "Obesity"
     if "fitness" in topic and re.search(r"\bfitness tracker\b", blob_l):
         return "fitness tracker"
-    if "board game" in topic and re.search(r"\bmafia\b", blob_l):
+    if ("board game" in topic or "imposter" in topic) and (
+        re.search(r"\bmafia\b", blob_l)
+        or re.search(r"\bimpostors?\b|\bfigure out who the impost", blob_l)
+    ):
         return "Mafia"
-    if re.search(r"\bgame with different colored cards\b", topic) and re.search(
-        r"\buno\b", blob_l
+    if (
+        re.search(r"\bgame with different colored cards\b", topic)
+        or ("colored cards" in topic and "game" in topic)
+    ) and (
+        re.search(r"\buno\b", blob_l)
+        or re.search(
+            r"\bmulti-?colored cards\b|\bcolored cards with numbers\b|"
+            r"\bcards with numbers\b.+\b(?:color|same color)\b",
+            blob_l,
+        )
     ):
         return "UNO"
     if "holiday" in topic and "wedding" in topic and re.search(r"\bchristmas\b", blob_l):

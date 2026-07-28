@@ -603,9 +603,17 @@ class MemoryRouter:
             if "allerg" in topic_l or "condition" in topic_l:
                 cue_searches.extend(["allergic allergies pets"])
             if "colored cards" in topic_l or re.search(r"\buno\b", topic_l):
-                cue_searches.extend(["UNO colored cards game"])
+                cue_searches.extend(
+                    ["UNO colored cards game", "multi-colored cards numbers"]
+                )
             if "imposter" in topic_l or "board game" in topic_l:
-                cue_searches.extend(["Mafia imposter board game"])
+                cue_searches.extend(
+                    ["Mafia imposter board game", "impostors friends game"]
+                )
+            if "discomfort" in topic_l or (
+                "pets" in topic_l and "wouldn" in topic_l
+            ):
+                cue_searches.extend(["allergic fur animals reptiles"])
             if "ireland" in topic_l and "star wars" in topic_l:
                 cue_searches.extend(["Star Wars Ireland study abroad"])
             seen_cue: set[str] = set()
