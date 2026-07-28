@@ -18,9 +18,9 @@ Offline token-F1 vs A-MEM Table 1 (GPT-4o-mini). Mem0/Zep **J** scores need an L
 | single_hop | **39.82** ✓ | flan-t5-xl | 27.02 | 26.65 |
 | multi_hop | **34.73** (XL21) | flan-t5-xl | 45.85 | 25.52 ✓ |
 | temporal | **33.91** ✓ | flan-t5-xl | 12.14 | 9.15 |
-| open_domain | **34.79** | flan-t5-xl (XL13) | 44.65 | 41.04 |
+| open_domain | **57.13** (XL28d) | flan-t5-xl | 44.65 | 41.04 |
 
-**Scoreboard vs A-MEM:** **2/4** (single + temporal). MemGPT **3/4**. MemoryBank/ReadAgent **4/4**. Best overall: **XL21 36.20**.
+**Scoreboard vs A-MEM:** **3/4** (single + temporal + open). MemGPT **4/4**. MemoryBank/ReadAgent **4/4**. Best overall: **XL28d 37.39**.
 
 XL13 full rebench (intent-gated person window): overall **34.71**, multi **27.31**, open **34.79**, single **37.95**.
 
@@ -44,7 +44,7 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL27** (OD-only, 96 Qs): open **39.8** (city→state + July holiday + placeholder reject). Still < A-MEM 44.65 / MemGPT 41.04. Full-suite open historically lower than OD-only.
 
-**XL28d** (OD-only, 96 Qs): open **60.14** ✓ vs A-MEM 44.65 / MemGPT 41.04 (49.8→51.88→57.11→**60.14**). Added hairless-pet / UNO / Mafia cue inferences. Full-suite confirmation running.
+**XL28d** full suite (1540 Qs): overall **37.39** (best), single **38.28** ✓, multi **34.2** (MemGPT ✓; < A-MEM 45.85), temporal **31.96** ✓, open **57.13** ✓. **Scoreboard vs A-MEM 3/4**; vs MemGPT **4/4**. OD-only was 60.14.
 
 **XL26**: overall **35.38** — multi **33.28** / open 34.02 regressed vs XL21/XL25 (wider retrieval + turn prefer). Reverted those; keep OD query expansions. Evidence recall 29.36.
 
