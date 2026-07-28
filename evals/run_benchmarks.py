@@ -301,6 +301,7 @@ def run_locomo(
     max_questions: int | None = None,
     skip_adversarial: bool = True,
     use_llm: bool = False,
+    categories: set[str] | None = None,
 ) -> dict[str, Any]:
     path = DATA / "locomo10.json"
     if not path.exists():
@@ -473,12 +474,14 @@ def run_locomo(
             cat = int(qa.get("category", 0))
             if skip_adversarial and cat == 5:
                 continue
+            cat_name = CAT_NAMES.get(cat, f"cat_{cat}")
+            if categories is not None and cat_name not in categories:
+                continue
             if max_questions is not None and asked >= max_questions:
                 break
             question = qa["question"]
             gold = qa["answer"]
             golds = gold if isinstance(gold, list) else [str(gold)]
-            cat_name = CAT_NAMES.get(cat, f"cat_{cat}")
             result = router.answer(
                 question,
                 project_path=str(work / "project"),
@@ -576,6 +579,11 @@ def main() -> None:
         default=None,
         help="HuggingFace seq2seq model id for --llm (sets ULTIMATE_MEMORY_LOCAL_LLM)",
     )
+    parser.add_argument(
+        "--categories",
+        default=None,
+        help="Comma-separated LoCoMo categories to score (e.g. open_domain,multi_hop)",
+    )
     args = parser.parse_args()
 
     if args.model:
@@ -611,7 +619,15 @@ def main() -> None:
         if args.quick:
             max_dialogs = 1 if max_dialogs is None else max_dialogs
             max_questions = 40 if max_questions is None else max_questions
-        loco = run_locomo(max_dialogs=max_dialogs, max_questions=max_questions, use_llm=args.llm)
+        cats = None
+        if args.categories:
+            cats = {c.strip() for c in args.categories.split(",") if c.strip()}
+        loco = run_locomo(
+            max_dialogs=max_dialogs,
+            max_questions=max_questions,
+            use_llm=args.llm,
+            categories=cats,
+        )
         reports["locomo"] = loco
         (RESULTS / "locomo.json").write_text(json.dumps(loco, indent=2), encoding="utf-8")
         print(
