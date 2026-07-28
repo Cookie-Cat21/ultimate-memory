@@ -42,6 +42,10 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL20**: overall **35.46**, single **38.13** ✓, multi **31.46** (best; still < A-MEM 45.85), temporal **32.40** ✓, open **34.04**. Scoreboard vs A-MEM **2/4**; vs MemGPT **3/4**.
 
+**XL27** (OD-only, 96 Qs): open **39.8** (city→state + July holiday + placeholder reject). Still < A-MEM 44.65 / MemGPT 41.04. Full-suite open historically lower than OD-only.
+
+**XL28** (in progress): cue→label OD inferences (Pomodoro 25/5, HP→John Williams, yoga→Hatha, policymaking→degree fields, Xenoblade→Switch, cooking+dog→treats, etc.) + fix entity_infer specials that required catalog `hits` topic-overlap (Under Armour/chicken).
+
 **XL26**: overall **35.38** — multi **33.28** / open 34.02 regressed vs XL21/XL25 (wider retrieval + turn prefer). Reverted those; keep OD query expansions. Evidence recall 29.36.
 
 **XL25**: overall **36.11**, single **38.39** ✓, multi **34.61**, temporal **32.03** ✓, open **34.24** (best since XL13; still < A-MEM 44.65 / MemGPT 41.04). Multi-only soft person + OD holiday/filmmaker cues. Scoreboard vs A-MEM **2/4**; vs MemGPT **3/4**.
