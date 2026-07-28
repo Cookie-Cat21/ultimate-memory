@@ -651,9 +651,9 @@ class MemoryRouter:
             if kind in always:
                 prefer_aggregated = True
             elif kind == "entity_infer":
-                # Only prefer when the aggregate is a short concrete span; otherwise
-                # let the LLM answer and keep aggregate as IDK fallback.
-                prefer_aggregated = len(aggregated.split()) <= 6
+                # Prefer any short concrete entity_infer span. Flan often emits
+                # placeholders ("job title"/"org") or yes/no on OD probes (XL25b).
+                prefer_aggregated = len(aggregated.split()) <= 8
             elif kind in list_kinds:
                 prefer_aggregated = "," in aggregated or " and " in aggregated.lower()
             elif "," in aggregated:

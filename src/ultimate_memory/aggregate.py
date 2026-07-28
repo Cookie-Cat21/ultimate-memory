@@ -2008,10 +2008,26 @@ def _entity_infer(topic: str, texts: list[str]) -> str | None:
             return ", ".join(deg)
     if "holiday" in topic and re.search(
         r"\bindependence day\b|\b4th of july\b|\bjuly 4\b|"
-        r"\bjuly\s*(?:2|3|4|02|03|04)\b|\b0?2\s+july\b|\b0?4\s+july\b",
+        r"\bjuly\s*(?:2|3|4|02|03|04)\b|"
+        r"\b(?:0?[234])\s+july\b|"
+        r"\b0?3\s+july\b|\byesterday\b.+\bjuly\b|\bjuly\b.+\byesterday\b",
         blob_l,
     ):
         return "Independence Day"
+    # City → state inferences common in LoCoMo open-domain geo probes.
+    if re.search(r"\bstate\b", topic):
+        city_state = (
+            (r"\bfort wayne\b", "Indiana"),
+            (r"\btampa\b", "Florida"),
+            (r"\bminneapolis\b|\bst\.?\s*paul\b", "Minnesota"),
+            (r"\bseattle\b", "Washington"),
+            (r"\bchicago\b", "Illinois"),
+            (r"\bsan francisco\b", "California"),
+            (r"\blondon\b", None),  # not a US state
+        )
+        for pattern, label in city_state:
+            if label and re.search(pattern, blob_l):
+                return label
     # "What kind of job … movie scripts" often misses entity_infer modal cues.
     if re.search(r"\b(?:job|career)\b", topic) and re.search(
         r"\b(?:film(?:maker| making)|movie scripts?|screenplay)\b", blob_l

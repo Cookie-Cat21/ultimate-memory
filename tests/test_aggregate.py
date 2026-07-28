@@ -374,6 +374,27 @@ class TestListUnionIntent:
             )
             == "Independence Day"
         )
+        assert (
+            aggregate_answer(
+                "Around which US holiday did Maria get into a car accident?",
+                ["Maria: something not so great happened yesterday", "session_date: 3 July 2023"],
+            )
+            == "Independence Day"
+        )
+        assert (
+            aggregate_answer(
+                "What state did Joanna visit in summer 2021?",
+                ["Joanna took that pic on a hike last summer near Fort Wayne."],
+            )
+            == "Indiana"
+        )
+        assert (
+            aggregate_answer(
+                "What state did Nate visit?",
+                ["Nate took his turtles to the beach in Tampa yesterday."],
+            )
+            == "Florida"
+        )
         intent = detect_aggregate_intent(
             "What kind of job is Joanna beginning to preform the duties of because of her movie scripts?"
         )

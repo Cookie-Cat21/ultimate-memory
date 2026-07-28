@@ -155,6 +155,20 @@ def _looks_like_echo_or_meta(answer: str, question: str) -> bool:
     if a.endswith("?"):
         return True
     lower = a.lower()
+    # Flan sometimes emits placeholder labels instead of entities.
+    if re.fullmatch(
+        r"(?:job title|org|organization|name|place|entity|answer|n/?a|none|unknown)",
+        lower,
+    ):
+        return True
+    # Speaker-prefixed chitchat / profile echoes.
+    if re.match(r"^[A-Z][a-z]+:\s+", a) and len(a.split()) > 4:
+        return True
+    # Yes/no collapse on what/which/who entity questions.
+    if re.match(r"^(?:what|which|who|where|around which)\b", question.lower()) and re.match(
+        r"^(?:likely\s+)?(?:yes|no)\b", lower
+    ):
+        return True
     if re.search(
         r"\b(?:any fun plans|catch up after|what's up with|tell me more|"
         r"hope you're|long time|that's gorgeous|got any other|"
