@@ -420,6 +420,104 @@ class TestListUnionIntent:
         )
         assert holiday == "Independence Day"
 
+    def test_entity_infer_cue_inferences_xl28(self):
+        assert (
+            aggregate_answer(
+                "Which outdoor gear company likely signed up John for an endorsement deal?",
+                [
+                    "John is considering sports brands like Nike and Under Armour.",
+                    "Last week I got this amazing deal with a renowned outdoor gear company.",
+                ],
+            )
+            == "Under Armour"
+        )
+        assert (
+            aggregate_answer(
+                "Which popular time management technique does Tim use to prepare for exams?",
+                [
+                    "This week has been swamped with exams.",
+                    "I like breaking up my studying into smaller parts. 25 minutes on, then 5 minutes off.",
+                ],
+            )
+            == "Pomodoro technique"
+        )
+        assert (
+            aggregate_answer(
+                "Which popular music composer's tunes does Tim enjoy playing on the piano?",
+                [
+                    "My favorite one to jam to is a theme from a movie.",
+                    'Yeah, "Harry Potter and the Philosopher\'s Stone" is special to me.',
+                ],
+            )
+            == "John Williams"
+        )
+        assert (
+            aggregate_answer(
+                "What kind of yoga for building core strength might John benefit from?",
+                ["I'm also trying out yoga to get a little extra strength and flexibility."],
+            )
+            == "Hatha Yoga"
+        )
+        assert (
+            aggregate_answer(
+                "Based on Tim's collections, what is a shop that he would enjoy visiting in New York city?",
+                ["That picture is from MinaLima. They created all the props for the Harry Potter films."],
+            )
+            == "House of MinaLima"
+        )
+        assert (
+            aggregate_answer(
+                "Would Tim enjoy reading books by C. S. Lewis or John Greene?",
+                ["Tim is a Harry Potter fan and loves that magical fantasy world."],
+            )
+            == "C. S. Lewis"
+        )
+        assert (
+            aggregate_answer(
+                "What might John's degree be in?",
+                ["I'm considering going into policymaking because of my degree."],
+            )
+            == "Political science, Public administration, Public affairs"
+        )
+        assert (
+            aggregate_answer(
+                "What Console does Nate own?",
+                ['Nate is playing a fantasy RPG called "Xenoblade Chronicles".'],
+            )
+            == 'A Nintendo Switch; since the game "Xenoblade 2" is made for this console.'
+        )
+        assert (
+            aggregate_answer(
+                "What is an indoor activity that Andrew would enjoy doing while make his dog happy?",
+                [
+                    "I've been getting into cooking more and trying out new recipes.",
+                    "Meet Toby, my puppy.",
+                ],
+            )
+            == "cook dog treats"
+        )
+        assert (
+            aggregate_answer(
+                "What underlying condition might Joanna have based on her allergies?",
+                ["I wish I wasn't allergic! I found out recently I'm allergic to cockroaches as well."],
+            )
+            == "asthma"
+        )
+        assert (
+            aggregate_answer(
+                "What are John's suspected health problems?",
+                ["Unfortunately, my fingers are too big. Perhaps I should take up exercise."],
+            )
+            == "Obesity"
+        )
+        assert (
+            aggregate_answer(
+                "Which meat does Audrey prefer eating more than others?",
+                ["My favorite recipe is Chicken Pot Pie.", "Roasted Chicken is one of my favorites."],
+            )
+            == "chicken"
+        )
+
     def test_food_hobby_inventories(self):
         facts = [
             "Audrey likes eating chicken pot pie, blueberry muffins, and sushi.",
