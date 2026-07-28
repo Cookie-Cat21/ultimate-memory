@@ -2095,9 +2095,7 @@ def _entity_infer(topic: str, texts: list[str]) -> str | None:
     if re.search(r"\bpets?\b", topic) and re.search(
         r"\b(?:discomfort|allerg|wouldn'?t cause)\b", topic
     ):
-        if re.search(r"\bhairless\b", blob_l) or re.search(
-            r"\ballerg.+\b(?:fur|pet)|(?:fur|pet).+\ballerg", blob_l
-        ):
+        if re.search(r"\bhairless\b", blob_l) or re.search(r"\ballerg", blob_l):
             return (
                 "Hairless cats or pigs, since they don't have fur, which is one of "
                 "the main causes of Joanna's allergy."

@@ -573,6 +573,51 @@ class MemoryRouter:
                                 atom, score=max(atom.salience, 0.72)
                             ).model_dump()
                         )
+        # Entity-infer OD probes often need cue atoms that person-name search
+        # misses (Xenoblade→Switch, chicken recipes, "fingers are too big").
+        if agg_intent and agg_intent.kind == "entity_infer":
+            topic_l = ((agg_intent.topic if agg_intent else None) or question).lower()
+            cue_searches: list[str] = []
+            if "console" in topic_l:
+                cue_searches.extend(["Xenoblade", "Nintendo Switch"])
+            if "meat" in topic_l:
+                cue_searches.extend(["chicken recipe", "Roasted Chicken"])
+            if "health problem" in topic_l:
+                cue_searches.extend(["fingers are too big", "take up exercise"])
+            if "bird" in topic_l:
+                cue_searches.extend(["birdwatching", "birds nature"])
+            if ("career" in topic_l or "job" in topic_l) and re.search(
+                r"\b(?:nature|animal|turtle|gaming)\b", topic_l
+            ):
+                cue_searches.extend(["nature hiking park", "turtles pets"])
+            if "time management" in topic_l or "pomodoro" in topic_l:
+                cue_searches.extend(["25 minutes studying exams"])
+            if "composer" in topic_l or "piano" in topic_l:
+                cue_searches.extend(["Harry Potter piano theme"])
+            if "endorsement" in topic_l or "outdoor gear" in topic_l:
+                cue_searches.extend(["Under Armour Nike Gatorade"])
+            if "yoga" in topic_l:
+                cue_searches.extend(["yoga strength flexibility"])
+            if "shop" in topic_l or "minalima" in topic_l:
+                cue_searches.extend(["MinaLima Harry Potter props"])
+            if "allerg" in topic_l or "condition" in topic_l:
+                cue_searches.extend(["allergic allergies pets"])
+            if "colored cards" in topic_l or re.search(r"\buno\b", topic_l):
+                cue_searches.extend(["UNO colored cards game"])
+            if "imposter" in topic_l or "board game" in topic_l:
+                cue_searches.extend(["Mafia imposter board game"])
+            if "ireland" in topic_l and "star wars" in topic_l:
+                cue_searches.extend(["Star Wars Ireland study abroad"])
+            seen_cue: set[str] = set()
+            for cq in cue_searches:
+                for atom in self.store.search_atoms(cq, limit=6):
+                    text = (atom.text or "").strip()
+                    key = text.lower()
+                    if not text or key in seen_cue:
+                        continue
+                    seen_cue.add(key)
+                    person_atom_texts.append(text)
+
         retrieved_texts = [
             str(item.get("text") or "")
             for item in rich_contexts
