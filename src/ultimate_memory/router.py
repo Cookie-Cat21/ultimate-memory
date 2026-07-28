@@ -714,9 +714,10 @@ class MemoryRouter:
             if kind in always:
                 prefer_aggregated = True
             elif kind == "entity_infer":
-                # Prefer any short concrete entity_infer span. Flan often emits
-                # placeholders ("job title"/"org") or yes/no on OD probes (XL25b).
-                prefer_aggregated = len(aggregated.split()) <= 8
+                # Prefer concrete entity_infer spans, including longer justified
+                # OD answers (Nintendo Switch / hairless pets / park ranger).
+                # Cap was 8 words and let Flan empty/placeholder override (XL28b).
+                prefer_aggregated = len(aggregated.split()) <= 28
             elif kind in list_kinds:
                 prefer_aggregated = "," in aggregated or " and " in aggregated.lower()
             elif "," in aggregated:
