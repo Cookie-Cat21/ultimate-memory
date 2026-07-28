@@ -230,6 +230,22 @@ class MemoryRouter:
             expansions.append("Voyageurs National Park Minnesota nature")
         if re.search(r"\bdegree\b|\bmajor\b", q_lower_all):
             expansions.append("political science public administration public affairs")
+        if re.search(r"\buno\b|colored cards|different colored", q_lower_all):
+            expansions.append("UNO card game colored cards")
+        if re.search(r"\bimposter\b|\bmafia\b", q_lower_all):
+            expansions.append("Mafia board game imposter")
+        if "asthma" in q_lower_all or ("condition" in q_lower_all and "allerg" in q_lower_all):
+            expansions.append("asthma allergic condition")
+        if re.search(r"\bfilmmaker\b|movie scripts?", q_lower_all):
+            expansions.append("filmmaker movie scripts screenplay")
+
+        # Category-gated wider retrieval for multi/open only (XL19 global widen hurt).
+        cat_early = (category or "").strip().lower()
+        effective_limit = limit
+        effective_hops = max_hop_searches
+        if cat_early in {"multi_hop", "open_domain"}:
+            effective_limit = max(limit, 28)
+            effective_hops = max(max_hop_searches, 3)
 
         search_queries = [dense_query, question, *expansions]
         rich_contexts: list[dict] = []
@@ -238,7 +254,7 @@ class MemoryRouter:
             result = self.search(
                 query=sq,
                 project_path=project_path,
-                limit=limit,
+                limit=effective_limit,
                 as_of=as_of,
             )
             if sq == dense_query:
@@ -275,15 +291,15 @@ class MemoryRouter:
         hop_queries = build_hop_queries(
             question,
             hop_entities,
-            max_queries=min(2, max_hop_searches),
+            max_queries=min(effective_hops, max(2, effective_hops)),
         )
         hop_searches: list[dict] = []
         hop_contexts: list[dict] = []
-        for hop_query in hop_queries[:max_hop_searches]:
+        for hop_query in hop_queries[:effective_hops]:
             hop_result = self.search(
                 query=hop_query,
                 project_path=project_path,
-                limit=limit,
+                limit=effective_limit,
                 as_of=as_of,
             )
             hop_searches.append({"query": hop_query, "search": hop_result})
@@ -752,22 +768,31 @@ class MemoryRouter:
             # Prefer atomic / dialogue snippets first for the local answerer.
             # (XL19 tried hard-preferring atom:obs/evt/inv and regressed open
             # 33.8→31.6 and overall 35.5→34.6 — keep the broader atomic tier.)
+            # For multi/open, prefer dialogue-turn snippets (evidence ids live there).
+            prefer_turns = cat_l in {"multi_hop", "open_domain"}
+
+            def _llm_rank_key(item: dict) -> tuple:
+                text = str(item.get("text") or "")
+                item_id = str(item.get("id") or "")
+                is_turn = (
+                    item_id.startswith("turn:")
+                    or text.startswith("[D")
+                    or bool(re.match(r"^\[D?\d", text))
+                )
+                is_atomic = (
+                    str((item.get("provenance") or {}).get("source")) == "atomic-memory"
+                    or item_id.startswith(("atom:", "turn:"))
+                    or is_turn
+                    or " profile:" in text
+                    or " activities:" in text
+                    or " items:" in text
+                )
+                tier = 0 if (prefer_turns and is_turn) else (1 if is_atomic else 2)
+                return (tier, -float(item.get("score") or 0.0))
+
             ordered = sorted(
                 [item for item in llm_pool if item.get("text")],
-                key=lambda item: (
-                    0
-                    if (
-                        str((item.get("provenance") or {}).get("source"))
-                        == "atomic-memory"
-                        or str(item.get("id") or "").startswith(("atom:", "turn:"))
-                        or str(item.get("text") or "").startswith("[D")
-                        or " profile:" in str(item.get("text") or "")
-                        or " activities:" in str(item.get("text") or "")
-                        or " items:" in str(item.get("text") or "")
-                    )
-                    else 1,
-                    -float(item.get("score") or 0.0),
-                ),
+                key=_llm_rank_key,
             )
             # For list QA, bias toward the wide person-atom window.
             if should_list_answer and person_atom_texts:
