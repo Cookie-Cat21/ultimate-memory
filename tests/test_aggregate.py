@@ -551,6 +551,75 @@ class TestListUnionIntent:
             == "Mafia"
         )
 
+    def test_late_dialog_multi_intents_xl29(self):
+        assert detect_aggregate_intent(
+            "What kind of indoor activities has Andrew pursued with his girlfriend?"
+        ).topic == "indoor activities"
+        assert detect_aggregate_intent(
+            "What outdoor activities has Andrew done other than hiking in nature?"
+        ).topic == "outdoor activities"
+        assert detect_aggregate_intent(
+            "Which places or events have John and James planned to meet at?"
+        ).topic == "meet plans"
+        assert detect_aggregate_intent(
+            "What kind of places have Andrew and his girlfriend checked out around the city?"
+        ).topic == "city places"
+        assert detect_aggregate_intent("What are Dave's dreams?").topic == "dreams"
+        assert detect_aggregate_intent(
+            "What kind of music does Dave listen to?"
+        ).topic == "music"
+        assert detect_aggregate_intent(
+            "What new yoga poses did Deborah try?"
+        ).topic == "yoga poses"
+        assert detect_aggregate_intent(
+            "What places give Deborah peace?"
+        ).topic == "peace places"
+        # OD Under Armour must not be stolen by gaming-gear inventory.
+        assert (
+            detect_aggregate_intent(
+                "Which outdoor gear company likely signed up John for an endorsement deal?"
+            ).kind
+            == "entity_infer"
+        )
+        facts = [
+            "Andrew and his girlfriend played board games and went wine tasting.",
+            "Andrew also tried growing flowers indoors.",
+            "Andrew went rock climbing and fishing besides hiking.",
+            "John and James planned to meet at VR Club, McGee's, and a baseball game.",
+            "Andrew and his girlfriend checked out cafes, a pet shelter, and a park.",
+            "Dave's dreams are to open a car maintenance shop and work on classic cars.",
+            "Deborah tried Warrior II and Dancer Pose in yoga class.",
+            "Deborah finds peace sitting by the beach and in Bali.",
+        ]
+        inv = []
+        for speaker, bits in (
+            ("Andrew", facts[:5]),
+            ("John", [facts[3]]),
+            ("Dave", [facts[5]]),
+            ("Deborah", facts[6:]),
+        ):
+            inv.extend(build_speaker_inventories(speaker, bits))
+        indoor = aggregate_answer(
+            "What kind of indoor activities has Andrew pursued with his girlfriend?",
+            inv,
+        )
+        assert indoor and "boardgames" in indoor.lower().replace(" ", "")
+        outdoor = aggregate_answer(
+            "What outdoor activities has Andrew done other than hiking in nature?",
+            inv,
+        )
+        assert outdoor and "rock climbing" in outdoor.lower()
+        meet = aggregate_answer(
+            "Which places or events have John and James planned to meet at?",
+            inv,
+        )
+        assert meet and "VR Club" in meet
+        city = aggregate_answer(
+            "What kind of places have Andrew and his girlfriend checked out around the city?",
+            inv,
+        )
+        assert city and "cafe" in city.lower()
+
     def test_food_hobby_inventories(self):
         facts = [
             "Audrey likes eating chicken pot pie, blueberry muffins, and sushi.",

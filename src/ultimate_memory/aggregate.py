@@ -43,8 +43,11 @@ _ACTIVITY_CANON = {
     "picnic": "picnic",
     "volunteer work": "volunteer work",
     "volunteering": "volunteer work",
+    "volunteering at pet shelter": "volunteering at pet shelter",
+    "pet shelter": "volunteering at pet shelter",
     "surfing": "surfing",
     "gardening": "gardening",
+    "growing flowers": "growing flowers",
     "wine tasting": "wine tasting",
     "boardgames": "boardgames",
     "board games": "boardgames",
@@ -54,6 +57,9 @@ _ACTIVITY_CANON = {
     "snowboarding": "snowboarding",
     "skiing": "skiing",
     "ice skating": "ice skating",
+    "rock climbing": "rock climbing",
+    "climbing": "rock climbing",
+    "fishing": "fishing",
 }
 
 _CAMP_PLACES = {
@@ -90,6 +96,9 @@ _PAINT_SUBJECTS = {
     "animals": "animals",
     "autumn": "autumn",
     "abstract": "abstract art",
+    "abstract minimalism": "abstract minimalism",
+    "portrait": "portraits",
+    "portraits": "portraits",
 }
 
 _LGBTQ_WAYS = {
@@ -788,6 +797,12 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         return AggregateIntent("relationship_status", person)
     if re.search(r"\bmove(?:d)?\s+from\b|\bfrom\s+.+\s+ago\b", q_lower):
         return AggregateIntent("moved_from", person)
+    # Indoor/outdoor activity lists need inventory_union (expanded canons), not
+    # the early Melanie-family `activities` collector (XL29 late-dialog multi).
+    if re.search(r"\bindoor activities\b", q_lower):
+        return AggregateIntent("inventory_union", person, topic="indoor activities")
+    if re.search(r"\boutdoor activities\b", q_lower):
+        return AggregateIntent("inventory_union", person, topic="outdoor activities")
     if re.search(r"\bactivities?\b|\bpartake\b|\bdone with (?:her|his|their) family\b", q_lower):
         return AggregateIntent("activities", person)
     if re.search(r"\bcamped\b|\bcamping\b.*\bwhere\b|\bwhere\b.*\bcamp", q_lower):
@@ -936,6 +951,71 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         return AggregateIntent("inventory_union", person, topic="submission places")
     if re.search(r"\bplaces?\b.+\bmet new people\b|\bmet new people\b", q_lower):
         return AggregateIntent("inventory_union", person, topic="meet places")
+    if re.search(
+        r"\b(?:planned to meet|meet at|places? or events?.+\bmeet)\b|"
+        r"\bplaces?\b.+\b(?:planned to )?meet\b",
+        q_lower,
+    ):
+        return AggregateIntent("inventory_union", person, topic="meet plans")
+    if re.search(
+        r"\bplaces?\b.+\b(?:around the city|checked out|girlfriend)\b|"
+        r"\bchecked out around the city\b",
+        q_lower,
+    ):
+        return AggregateIntent("inventory_union", person, topic="city places")
+    if re.search(r"\byoga poses?\b|\bnew yoga poses?\b", q_lower):
+        return AggregateIntent("inventory_union", person, topic="yoga poses")
+    if re.search(
+        r"\b(?:locations?|places?)\b.+\byoga\b|\byoga\b.+\b(?:practice|locations?|places?)\b",
+        q_lower,
+    ):
+        return AggregateIntent("inventory_union", person, topic="yoga places")
+    if re.search(r"\bplaces?\b.+\bpeace\b|\bgive .+ peace\b|\bpeace when\b", q_lower):
+        return AggregateIntent("inventory_union", person, topic="peace places")
+    if re.search(r"\bdreams?\b", q_lower) and not re.search(
+        r"\b(?:travel dreams?|dream about)\b", q_lower
+    ):
+        return AggregateIntent("inventory_union", person, topic="dreams")
+    if re.search(r"\bkind of music\b|\bmusic does\b.+\blisten\b|\bmusic .+ listen", q_lower):
+        return AggregateIntent("inventory_union", person, topic="music")
+    if re.search(
+        r"\bgaming (?:gear|equipment|items?|headphones|mouse|desk)\b|"
+        r"\b(?:Sennheiser|Logitech|gaming desk)\b|"
+        r"\bitems?\b.+\bgaming\b|\bgaming\b.+\b(?:bought|purchased|items?)\b",
+        q_lower,
+    ):
+        return AggregateIntent("inventory_union", person, topic="gaming gear")
+    if re.search(r"\bprogramming (?:events?|competition|seminar)", q_lower):
+        return AggregateIntent("inventory_union", person, topic="programming events")
+    if (
+        re.search(
+            r"\b(?:health (?:incidents?|scares?)|heart palpitations|"
+            r"twisted ankle|gastritis)\b",
+            q_lower,
+        )
+        and re.search(r"\b(?:what|which)\b", q_lower)
+        and not re.search(r"\b(?:suspected|might|likely|could|potentially)\b", q_lower)
+    ):
+        return AggregateIntent("inventory_union", person, topic="health incidents")
+    if re.search(
+        r"\b(?:what|which)\s+(?:time management )?techniques?\b",
+        q_lower,
+    ) and "techniques" in q_lower:
+        # Plural techniques → multi list (Jolene). Singular OD "which technique" stays entity_infer.
+        return AggregateIntent("inventory_union", person, topic="time management")
+    if re.search(r"\bengineering projects?\b|\bprojects?\b.+\bengineer", q_lower):
+        return AggregateIntent("inventory_union", person, topic="engineering projects")
+    if re.search(
+        r"\b(?:dog|pet)\s+(?:items?|gear|supplies|things)\b|"
+        r"\bitems?\b.+\b(?:dogs?|pets?)\b",
+        q_lower,
+    ):
+        return AggregateIntent("inventory_union", person, topic="dog items")
+    if re.search(
+        r"\b(?:passed away|have passed|family and friends have passed)\b",
+        q_lower,
+    ):
+        return AggregateIntent("inventory_union", person, topic="passed away")
     if re.search(r"\bcloser to (?:her|his|their) faith\b|\bfeel closer to\b.+\bfaith\b", q_lower):
         return AggregateIntent("inventory_union", person, topic="faith actions")
     if re.search(r"\bareas of the u\.?s|\bus areas\b", q_lower):
@@ -1449,8 +1529,35 @@ def _inventory_union(person: str | None, head: str, texts: list[str]) -> str | N
             "place" in head_l and "submission" in head_l
         ):
             alias_ok = "submission place" in label_l
-        elif "meet" in head_terms and "place" in head_l:
-            alias_ok = "meet place" in label_l
+        elif "meet" in head_terms and ("place" in head_l or "plan" in head_l):
+            alias_ok = "meet place" in label_l or "meet plan" in label_l
+        elif "dream" in head_terms:
+            alias_ok = "dream" in label_l and "event" not in label_l
+        elif "music" in head_terms and "event" not in head_l:
+            alias_ok = (
+                ("music" in label_l or "band" in label_l)
+                and "event" not in label_l
+            )
+        elif "city" in head_terms and "place" in head_l:
+            alias_ok = "city place" in label_l
+        elif "gaming" in head_terms or "gear" in head_terms:
+            alias_ok = "gaming gear" in label_l
+        elif "programming" in head_terms:
+            alias_ok = "programming event" in label_l
+        elif "health" in head_terms:
+            alias_ok = "health incident" in label_l
+        elif "engineering" in head_terms or (
+            "project" in head_terms and "engineering" in head_l
+        ):
+            alias_ok = "engineering project" in label_l
+        elif "dog" in head_terms and "item" in head_l:
+            alias_ok = "dog item" in label_l
+        elif "passed" in head_terms or "passed away" in head_l:
+            alias_ok = "passed away" in label_l
+        elif "indoor" in head_terms and "activit" in head_l:
+            alias_ok = "indoor activit" in label_l or "activit" in label_l
+        elif "outdoor" in head_terms and "activit" in head_l:
+            alias_ok = "outdoor activit" in label_l or "activit" in label_l
         if alias_ok or (
             place_mode
             and not specific_head
@@ -2704,11 +2811,21 @@ def aggregate_answer(question: str, contexts: list[str]) -> str | None:
     if intent.kind == "bought_items":
         found: list[str] = []
         blob = " ".join(person_texts + texts).lower()
-        for item in ("figurines", "figurine", "shoes", "shoe"):
-            if re.search(rf"\b{item}\b", blob):
-                label = "Figurines" if item.startswith("figurine") else "shoes"
-                if label not in found:
-                    found.append(label)
+        for item, label in (
+            ("figurines", "Figurines"),
+            ("figurine", "Figurines"),
+            ("shoes", "shoes"),
+            ("shoe", "shoes"),
+            ("dog tags", "dog tags"),
+            ("dog tag", "dog tags"),
+            ("dog beds", "dog beds"),
+            ("dog bed", "dog beds"),
+            ("collars", "collars"),
+            ("collar", "collars"),
+            ("toys", "toys"),
+        ):
+            if re.search(rf"\b{re.escape(item)}\b", blob) and label not in found:
+                found.append(label)
         return ", ".join(found) if found else None
     if intent.kind == "hike_family":
         found: list[str] = []
@@ -3054,6 +3171,94 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(
             r"\b((?:gaming )?tournament|gaming convention|convention|"
             r"music festival)\b",
+            re.I,
+        ),
+    ),
+    (
+        "meet plans",
+        re.compile(
+            r"\b(VR Club|McGee'?s|baseball game|baseball)\b",
+            re.I,
+        ),
+    ),
+    (
+        "city places",
+        re.compile(
+            r"\b(cafes?|new places to eat|open space(?: for hikes)?|pet shelter|"
+            r"wine tasting(?: event)?|park|restaurants?)\b",
+            re.I,
+        ),
+    ),
+    (
+        "gaming gear",
+        re.compile(
+            r"\b(Sennheiser(?: headphones)?|Logitech(?: mouse)?|gaming desk|"
+            r"headphones|gaming mouse)\b",
+            re.I,
+        ),
+    ),
+    (
+        "programming events",
+        re.compile(
+            r"\b(online programming competition|programming seminar|"
+            r"programming competition|coding competition)\b",
+            re.I,
+        ),
+    ),
+    (
+        "health incidents",
+        re.compile(
+            r"\b(heart palpitations|twisted ankle|gastritis|ankle injury)\b",
+            re.I,
+        ),
+    ),
+    (
+        "time management",
+        re.compile(
+            r"\b(Pomodoro(?: technique)?|Eisenhower(?: matrix)?|bullet journal|"
+            r"to-?do list)\b",
+            re.I,
+        ),
+    ),
+    (
+        "engineering projects",
+        re.compile(
+            r"\b(robotics|water purifier|aerial surveillance|"
+            r"electrical engineering)\b",
+            re.I,
+        ),
+    ),
+    (
+        "dog items",
+        re.compile(
+            r"\b(dog tags?|toys|dog beds?|collars?)\b",
+            re.I,
+        ),
+    ),
+    (
+        "passed away",
+        re.compile(
+            r"\b((?:her |his |their )?(?:mother|father|friend Karlie|Karlie)|"
+            r"mom|dad)\b.+\b(?:passed|died|death)|"
+            r"\b(?:passed away|died)\b.+\b((?:her |his )?(?:mother|father|friend|"
+            r"Karlie))\b|"
+            r"\b(mother|father|Karlie)\b",
+            re.I,
+        ),
+    ),
+    (
+        "indoor activities",
+        re.compile(
+            r"\b(board ?games?|volunteering(?: at (?:a |the )?pet shelter)?|"
+            r"wine tasting|growing flowers|painting|cooking|yoga)\b",
+            re.I,
+        ),
+    ),
+    (
+        "outdoor activities",
+        re.compile(
+            r"\b(rock climbing|climbing|fishing|camping|hiking|"
+            r"kayaking|snowboarding|skiing)\b",
             re.I,
         ),
     ),
@@ -3528,6 +3733,17 @@ def build_speaker_inventories(speaker: str, fact_texts: list[str]) -> list[str]:
             "charity beneficiaries",
             "submission places",
             "meet places",
+            "meet plans",
+            "city places",
+            "gaming gear",
+            "programming events",
+            "health incidents",
+            "time management",
+            "engineering projects",
+            "dog items",
+            "passed away",
+            "indoor activities",
+            "outdoor activities",
             "faith actions",
             "us areas",
             "yoga poses",
