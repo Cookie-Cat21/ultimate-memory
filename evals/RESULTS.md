@@ -46,6 +46,8 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL28d** full suite (1540 Qs): overall **37.39** (best), single **38.28** ✓, multi **34.2** (MemGPT ✓; < A-MEM 45.85), temporal **31.96** ✓, open **57.13** ✓. **Scoreboard vs A-MEM 3/4**; vs MemGPT **4/4**. OD-only was 60.14.
 
+**XL29** (in progress): late-dialog multi inventory topics (indoor/outdoor activities, meet plans, city places, yoga/peace/dreams/music, gaming gear, …). Multi-only rebench running.
+
 **XL26**: overall **35.38** — multi **33.28** / open 34.02 regressed vs XL21/XL25 (wider retrieval + turn prefer). Reverted those; keep OD query expansions. Evidence recall 29.36.
 
 **XL25**: overall **36.11**, single **38.39** ✓, multi **34.61**, temporal **32.03** ✓, open **34.24** (best since XL13; still < A-MEM 44.65 / MemGPT 41.04). Multi-only soft person + OD holiday/filmmaker cues. Scoreboard vs A-MEM **2/4**; vs MemGPT **3/4**.
