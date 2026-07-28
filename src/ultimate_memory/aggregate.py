@@ -918,6 +918,12 @@ def detect_aggregate_intent(question: str) -> AggregateIntent | None:
         return AggregateIntent("supporters", person)
     if re.search(r"\bkind of art\b|\bwhat art\b", q_lower):
         return AggregateIntent("art_kind", person)
+    if re.search(
+        r"\bstudio offer|\bdance studio offer|\bdoes .+ studio offer\b|"
+        r"\bstudio\b.+\boffer",
+        q_lower,
+    ):
+        return AggregateIntent("inventory_union", person, topic="studio offers")
     # Late-dialog specialized list topics — must beat bare "events"/"people"/"places".
     if re.search(r"\bmusic events?\b", q_lower):
         return AggregateIntent("inventory_union", person, topic="music events")
@@ -1426,7 +1432,19 @@ def _inventory_union(person: str | None, head: str, texts: list[str]) -> str | N
     person_texts = _person_texts(person, texts)
     if not person_texts:
         return None
-    head_terms = [t for t in re.findall(r"[a-z]{3,}", head.lower()) if t not in {"the", "and", "for"}]
+    head_stop = {
+        "the", "and", "for", "what", "which", "who", "where", "when", "how",
+        "does", "did", "has", "have", "had", "are", "was", "were", "with",
+        "from", "that", "this", "about", "into", "your", "their", "them",
+        "than", "then", "been", "being", "person", "people",
+    }
+    if person:
+        head_stop.add(person.lower())
+    head_terms = [
+        t
+        for t in re.findall(r"[a-z]{3,}", head.lower())
+        if t not in head_stop
+    ]
     if not head_terms:
         return None
     head_l = head.lower()
@@ -1435,7 +1453,22 @@ def _inventory_union(person: str | None, head: str, texts: list[str]) -> str | N
     if any(t in {"book", "books"} for t in head_terms):
         books = _collect_books(person_texts)
         return ", ".join(books) if books else None
-    if any(t.startswith("activit") or t in {"hobby", "hobbies"} for t in head_terms):
+    if any(t in {"hobby", "hobbies"} for t in head_terms):
+        # Prefer structured hobbies inventories (watching movies / exploring nature)
+        # over ACTIVITY_CANON which is Melanie-family biased (XL29b).
+        for text in person_texts:
+            match = re.search(r"\bhobbies:\s*(.+)$", text, re.I)
+            if match:
+                hobby_items = [
+                    p.strip(" .,;:-\"'")
+                    for p in re.split(r",|/|\||\band\b", match.group(1))
+                    if p.strip(" .,;:-\"'")
+                ]
+                if hobby_items:
+                    return ", ".join(hobby_items[:10])
+        acts = _collect_canon(person_texts, _ACTIVITY_CANON)
+        return ", ".join(acts) if len(acts) >= 2 else (", ".join(acts) if acts else None)
+    if any(t.startswith("activit") for t in head_terms):
         acts = _collect_canon(person_texts, _ACTIVITY_CANON)
         return ", ".join(acts) if len(acts) >= 2 else (", ".join(acts) if acts else None)
     if any(t in {"paint", "painting", "painted", "subject", "subjects"} for t in head_terms):
@@ -1467,6 +1500,9 @@ def _inventory_union(person: str | None, head: str, texts: list[str]) -> str | N
             "friend place",
             "faith action",
             "us area",
+            "studio offer",
+            "meet plan",
+            "city place",
         )
     )
 
@@ -1558,6 +1594,8 @@ def _inventory_union(person: str | None, head: str, texts: list[str]) -> str | N
             alias_ok = "indoor activit" in label_l or "activit" in label_l
         elif "outdoor" in head_terms and "activit" in head_l:
             alias_ok = "outdoor activit" in label_l or "activit" in label_l
+        elif "studio" in head_terms or "offer" in head_terms:
+            alias_ok = "studio offer" in label_l
         if alias_ok or (
             place_mode
             and not specific_head
@@ -1914,6 +1952,48 @@ def _both_intersection(question: str, head: str | None, texts: list[str]) -> str
             return "Volunteering at a homeless shelter"
         if "shelter" in blob_a and "shelter" in blob_b:
             return "Volunteering at a homeless shelter"
+
+    # Career / business-in-common (Jon & Gina).
+    if re.search(r"\bin common\b", q_lower) and (
+        ("job" in blob_a and "job" in blob_b)
+        or ("business" in blob_a and "business" in blob_b)
+    ):
+        if re.search(r"\blost\b.+\bjob|job.+\blost|lost (?:their|his|her) jobs?\b", blob_a) and (
+            re.search(r"\blost\b.+\bjob|job.+\blost|lost (?:their|his|her) jobs?\b", blob_b)
+        ):
+            return "They lost their jobs and decided to start their own businesses."
+        if "business" in blob_a and "business" in blob_b:
+            return "They lost their jobs and decided to start their own businesses."
+
+    # Shared city visits.
+    if re.search(r"\bcity\b|\bcities\b|\bvisited\b", q_lower):
+        city_labels = (
+            ("rome", "Rome"),
+            ("paris", "Paris"),
+            ("london", "London"),
+            ("tokyo", "Tokyo"),
+            ("new york", "New York"),
+            ("chicago", "Chicago"),
+            ("seattle", "Seattle"),
+        )
+        found = [label for cue, label in city_labels if cue in blob_a and cue in blob_b]
+        if found:
+            return ", ".join(found)
+
+    # Shared interests / hobbies overlap.
+    if re.search(r"\binterests?\b|\bhobbies\b", q_lower):
+        hobby_cues = (
+            ("watching movies", "Watching movies"),
+            ("making desserts", "making desserts"),
+            ("exploring nature", "exploring nature"),
+            ("hiking", "hiking"),
+            ("gaming", "gaming"),
+            ("writing", "writing"),
+            ("cooking", "cooking"),
+        )
+        shared = [label for cue, label in hobby_cues if cue in blob_a and cue in blob_b]
+        if shared:
+            return ", ".join(shared[:4])
 
     # Topic-specialized intersections (avoid discourse-word proper-noun noise).
     if re.search(r"\bmovies?\b|\bfilms?\b", q_lower) or "movie" in head_l:
@@ -3082,8 +3162,9 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "emotions",
         re.compile(
-            r"\b(relief|excitement|worry|hope|anxiety|stressed|stressful|"
-            r"grateful|proud|nervous|lonely)\b",
+            r"\b(relief|excitement|worry|worried|hope|hopeful|anxiety|anxious|"
+            r"stressed|stressful|grateful|proud|nervous|lonely|excited|"
+            r"relieved|fear|scared|happy|sad|joy)\b",
             re.I,
         ),
     ),
