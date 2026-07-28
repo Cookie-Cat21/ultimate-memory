@@ -44,7 +44,7 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL27** (OD-only, 96 Qs): open **39.8** (city→state + July holiday + placeholder reject). Still < A-MEM 44.65 / MemGPT 41.04. Full-suite open historically lower than OD-only.
 
-**XL28c** (OD-only, 96 Qs): open **57.11** ✓ vs A-MEM 44.65 / MemGPT 41.04 (XL28 49.8 → XL28b 51.88 → XL28c 57.11). Cue→label inferences + cue-atom retrieval + prefer_aggregated word cap 8→28. Full-suite confirmation running.
+**XL28d** (OD-only, 96 Qs): open **60.14** ✓ vs A-MEM 44.65 / MemGPT 41.04 (49.8→51.88→57.11→**60.14**). Added hairless-pet / UNO / Mafia cue inferences. Full-suite confirmation running.
 
 **XL26**: overall **35.38** — multi **33.28** / open 34.02 regressed vs XL21/XL25 (wider retrieval + turn prefer). Reverted those; keep OD query expansions. Evidence recall 29.36.
 
