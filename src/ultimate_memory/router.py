@@ -41,10 +41,14 @@ from .aggregate import (
 )
 from .answer import f1_ready_text, synthesize_answer
 from .hops import (
+    MAX_HOP_DEPTH,
     MAX_HOP_SEARCHES,
+    MULTI_HOP_SEARCH_BUDGET,
     build_hop_queries,
+    extract_capitalized_entities,
     extract_hop_entities,
     merge_contexts,
+    normalize_entity,
 )
 from .llm_answer import use_llm_from_env
 from .store import LocalStore
@@ -299,31 +303,79 @@ class MemoryRouter:
                     self._atom_to_search_result(atom, score=max(atom.salience, 0.55)).model_dump()
                 )
 
-        hop_entities = extract_hop_entities(question, search_result["results"])
-        hop_queries = build_hop_queries(
-            question,
-            hop_entities,
-            max_queries=min(2, max_hop_searches),
+        # Chained multi-hop retrieval: walk the bridge-entity graph transitively
+        # instead of stopping after one follow-up pass. Entities discovered in
+        # a hop-N search become the seeds for hop-(N+1) queries, capped by
+        # hop_depth / hop_budget. multi_hop questions typically need 2+ bridges
+        # (e.g. Elena -> Elena's sister Fiona -> Fiona's employer -> employer's
+        # HQ city), so they get a deeper walk and a larger search budget than
+        # the other three categories, which keep the original depth-1 /
+        # budget-3 behavior to avoid any regression.
+        if category == "multi_hop":
+            hop_depth = MAX_HOP_DEPTH
+            hop_budget = max(max_hop_searches, MULTI_HOP_SEARCH_BUDGET)
+        else:
+            hop_depth = 1
+            hop_budget = max_hop_searches
+
+        seen_entity_keys: set[str] = {
+            normalize_entity(e) for e in extract_capitalized_entities(question)
+        }
+        frontier = extract_hop_entities(
+            question, search_result["results"], exclude=seen_entity_keys
         )
+        hop_entities: list[str] = list(frontier)
         hop_searches: list[dict] = []
         hop_contexts: list[dict] = []
-        for hop_query in hop_queries[:max_hop_searches]:
-            hop_result = self.search(
-                query=hop_query,
-                project_path=project_path,
-                limit=limit,
-                as_of=as_of,
+        depth = 0
+        while frontier and depth < hop_depth and len(hop_searches) < hop_budget:
+            remaining = hop_budget - len(hop_searches)
+            hop_queries = build_hop_queries(
+                question,
+                frontier,
+                max_queries=min(2, remaining) if remaining > 0 else 0,
             )
-            hop_searches.append({"query": hop_query, "search": hop_result})
-            for item in hop_result["results"]:
-                if not item.get("text"):
-                    continue
-                boosted = dict(item)
-                provenance = dict(boosted.get("provenance") or {})
-                provenance["hop"] = True
-                boosted["provenance"] = provenance
-                boosted["score"] = float(boosted.get("score") or 0.0) + 0.35
-                hop_contexts.append(boosted)
+            if not hop_queries:
+                break
+            next_frontier: list[str] = []
+            for hop_query in hop_queries:
+                if len(hop_searches) >= hop_budget:
+                    break
+                hop_result = self.search(
+                    query=hop_query,
+                    project_path=project_path,
+                    limit=limit,
+                    as_of=as_of,
+                )
+                hop_searches.append({"query": hop_query, "search": hop_result})
+                for item in hop_result["results"]:
+                    if not item.get("text"):
+                        continue
+                    boosted = dict(item)
+                    provenance = dict(boosted.get("provenance") or {})
+                    provenance["hop"] = True
+                    provenance["hop_depth"] = depth + 1
+                    boosted["provenance"] = provenance
+                    # Later hops are slightly less trusted than hop 1 (they are
+                    # further from the question), but still boosted above the
+                    # base single-hop search results.
+                    boosted["score"] = float(boosted.get("score") or 0.0) + max(
+                        0.35 - 0.1 * depth, 0.1
+                    )
+                    hop_contexts.append(boosted)
+                # Seed the next level from entities newly discovered in this
+                # hop's results only (not re-walking entities already queried).
+                for ent in extract_hop_entities(
+                    question, hop_result["results"], limit=4, exclude=seen_entity_keys
+                ):
+                    key = normalize_entity(ent)
+                    if key in seen_entity_keys:
+                        continue
+                    seen_entity_keys.add(key)
+                    next_frontier.append(ent)
+                    hop_entities.append(ent)
+            frontier = next_frontier
+            depth += 1
 
         rich_contexts = merge_contexts(rich_contexts, hop_contexts)
 

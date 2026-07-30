@@ -10,6 +10,16 @@ import re
 
 MAX_HOP_SEARCHES = 3
 
+# Chained multi-hop: how many bridge-entity "levels" deep to walk before giving
+# up. depth=1 reproduces the old single-pass behaviour; depth>=2 lets an
+# entity discovered in hop 1 (e.g. Fiona's employer) spawn hop-2 queries
+# (e.g. that employer's HQ city) instead of stopping after one pass.
+MAX_HOP_DEPTH = 3
+# Multi-hop questions get a wider total search budget than the other three
+# LoCoMo categories (which keep MAX_HOP_SEARCHES=3 to avoid regressing their
+# already-winning scores).
+MULTI_HOP_SEARCH_BUDGET = 8
+
 _CAP_TOKEN_RE = re.compile(r"\b([A-Z][a-z]+(?:'s)?)\b")
 _POSSESSIVE_RE = re.compile(r"^(.+)'s$")
 
@@ -96,10 +106,16 @@ def extract_hop_entities(
     results: list[dict],
     *,
     limit: int = 8,
+    exclude: set[str] | None = None,
 ) -> list[str]:
-    """Collect entity names from the question, top results, and atom metadata."""
+    """Collect entity names from the question, top results, and atom metadata.
+
+    *exclude* is a set of already-normalized entity keys (see
+    :func:`normalize_entity`) to skip — used when chaining hops so a later
+    level doesn't re-discover an entity already queried at an earlier level.
+    """
     ordered: list[str] = []
-    seen: set[str] = set()
+    seen: set[str] = set(exclude or ())
 
     def add(name: str) -> None:
         base = name.strip()

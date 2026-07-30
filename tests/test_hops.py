@@ -14,7 +14,9 @@ from ultimate_memory.config import (
     Settings,
 )
 from ultimate_memory.hops import (
+    MAX_HOP_DEPTH,
     MAX_HOP_SEARCHES,
+    MULTI_HOP_SEARCH_BUDGET,
     build_hop_queries,
     extract_capitalized_entities,
     extract_hop_entities,
@@ -87,6 +89,27 @@ class TestHopHelpers:
     def test_max_hop_searches_cap(self):
         assert MAX_HOP_SEARCHES == 3
 
+    def test_multi_hop_depth_and_budget_constants(self):
+        # Chained multi-hop walks deeper and with a larger search budget than
+        # the single-pass default used by the other three LoCoMo categories.
+        assert MAX_HOP_DEPTH >= 2
+        assert MULTI_HOP_SEARCH_BUDGET > MAX_HOP_SEARCHES
+
+    def test_extract_hop_entities_respects_exclude(self):
+        results = [
+            {
+                "text": "Fiona's mentor is named Marcus.",
+                "provenance": {"entities": ["Fiona", "Marcus"]},
+            }
+        ]
+        entities = extract_hop_entities(
+            "Where does Fiona's mentor work?",
+            results,
+            exclude={"fiona"},
+        )
+        assert "Marcus" in entities
+        assert "Fiona" not in entities
+
 
 class TestMultiHopAnswer:
     def test_elena_fiona_job_question(self, tmp_path):
@@ -130,4 +153,70 @@ class TestMultiHopAnswer:
 
         assert result["answer"]
         assert "nurse" in result["answer"].lower()
+        assert len(result["hop_searches"]) <= MAX_HOP_SEARCHES
+
+    def test_chained_two_level_hop_for_multi_hop_category(self, tmp_path):
+        """A question needing two bridges (Elena -> Fiona -> Marcus -> Stanford)
+        should chain hop searches instead of stopping after the first bridge,
+        when the category is multi_hop."""
+        router = MemoryRouter(make_settings(tmp_path))
+        router.store.upsert_atom(
+            AtomicMemory(
+                id="elena-sister",
+                text="Elena's sister is named Fiona.",
+                memory_type=MemoryType.FACT,
+                entities=["Elena", "Fiona"],
+            )
+        )
+        router.store.upsert_atom(
+            AtomicMemory(
+                id="fiona-mentor",
+                text="Fiona's mentor is named Marcus.",
+                memory_type=MemoryType.FACT,
+                entities=["Fiona", "Marcus"],
+            )
+        )
+        router.store.upsert_atom(
+            AtomicMemory(
+                id="marcus-job",
+                text="Marcus works as a professor at Stanford.",
+                memory_type=MemoryType.FACT,
+                entities=["Marcus", "Stanford"],
+            )
+        )
+
+        result = router.answer(
+            "Where does Elena's sister's mentor work?",
+            limit=5,
+            category="multi_hop",
+        )
+
+        # A second-level bridge entity (Marcus) must be discovered from the
+        # first hop's results and searched in turn — proof the walk chained
+        # past depth 1.
+        assert "Marcus" in result["hop_entities"]
+        assert any(
+            "professor" in text.lower() or "stanford" in text.lower()
+            for text in result["contexts_used"]
+        )
+
+    def test_non_multi_hop_category_keeps_single_pass_budget(self, tmp_path):
+        """single_hop/temporal/open_domain must keep the original depth-1,
+        budget-3 hop behavior so they don't regress."""
+        router = MemoryRouter(make_settings(tmp_path))
+        router.store.upsert_atom(
+            AtomicMemory(
+                id="alice-job",
+                text="Alice works as a nurse in Seattle.",
+                memory_type=MemoryType.FACT,
+                entities=["Alice"],
+            )
+        )
+
+        result = router.answer(
+            "What does Alice do for work?",
+            limit=5,
+            category="single_hop",
+        )
+
         assert len(result["hop_searches"]) <= MAX_HOP_SEARCHES
