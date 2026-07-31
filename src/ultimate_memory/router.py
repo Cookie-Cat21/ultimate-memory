@@ -311,6 +311,7 @@ class MemoryRouter:
         # HQ city), so they get a deeper walk and a larger search budget than
         # the other three categories, which keep the original depth-1 /
         # budget-3 behavior to avoid any regression.
+        strict_entities = category == "multi_hop"
         if category == "multi_hop":
             hop_depth = MAX_HOP_DEPTH
             hop_budget = max(max_hop_searches, MULTI_HOP_SEARCH_BUDGET)
@@ -319,10 +320,22 @@ class MemoryRouter:
             hop_budget = max_hop_searches
 
         seen_entity_keys: set[str] = {
-            normalize_entity(e) for e in extract_capitalized_entities(question)
+            normalize_entity(e)
+            for e in extract_capitalized_entities(question, strict=strict_entities)
         }
+        # Excluding question-mentioned entities from the hop-1 frontier is only
+        # needed for chained levels (so hop 2+ doesn't re-walk an entity already
+        # queried). Master's original single-pass code never excluded them here
+        # at all — it let build_hop_queries' own bridge/fallback logic decide —
+        # so applying the exclusion at hop 1 for every category (not just
+        # multi_hop) shrank the single_hop/temporal/open_domain candidate pool
+        # and regressed their scores. Only pre-filter the initial frontier when
+        # chaining is actually in play.
         frontier = extract_hop_entities(
-            question, search_result["results"], exclude=seen_entity_keys
+            question,
+            search_result["results"],
+            exclude=seen_entity_keys if category == "multi_hop" else None,
+            strict=strict_entities,
         )
         hop_entities: list[str] = list(frontier)
         hop_searches: list[dict] = []
@@ -334,6 +347,7 @@ class MemoryRouter:
                 question,
                 frontier,
                 max_queries=min(2, remaining) if remaining > 0 else 0,
+                strict=strict_entities,
             )
             if not hop_queries:
                 break
@@ -366,7 +380,12 @@ class MemoryRouter:
                 # Seed the next level from entities newly discovered in this
                 # hop's results only (not re-walking entities already queried).
                 for ent in extract_hop_entities(
-                    question, hop_result["results"], limit=4, exclude=seen_entity_keys
+                    question,
+                    hop_result["results"],
+                    limit=4,
+                    exclude=seen_entity_keys,
+                    include_freetext=False,
+                    strict=strict_entities,
                 ):
                     key = normalize_entity(ent)
                     if key in seen_entity_keys:
