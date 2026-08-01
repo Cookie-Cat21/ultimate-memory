@@ -37,6 +37,7 @@ from .aggregate import (
     detect_aggregate_intent,
     filter_list_items_for_question,
     first_person,
+    harvest_list_items,
     merge_list_answers,
 )
 from .answer import f1_ready_text, synthesize_answer

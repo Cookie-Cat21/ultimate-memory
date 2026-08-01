@@ -14,7 +14,7 @@ from ultimate_memory.config import (
     RetrievalConfig,
     Settings,
 )
-from ultimate_memory.models import AtomicMemory, MemoryType, ReflectionPayload
+from ultimate_memory.models import AtomicMemory, MemoryType
 from ultimate_memory.router import MemoryRouter
 from ultimate_memory.store import LocalStore
 
@@ -179,7 +179,6 @@ class TestTemporalSearchRouter:
         router = MemoryRouter(make_settings(tmp_path))
         t_old = (datetime.now(UTC) - timedelta(days=400)).isoformat()
         t_mid = (datetime.now(UTC) - timedelta(days=200)).isoformat()
-        t_new = datetime.now(UTC).isoformat()
 
         router.store.upsert_atom(
             AtomicMemory(

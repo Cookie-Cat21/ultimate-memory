@@ -3,7 +3,7 @@
 # This script pipes that into ingest_session.py which calls the MemoryRouter.
 $ErrorActionPreference = "SilentlyContinue"
 
-$repoRoot = "C:\Users\Ovindu\Documents\Pet Projects\ultimate-memory"
+$repoRoot = Split-Path -Parent $PSScriptRoot
 $scriptPath = Join-Path $repoRoot "scripts\ingest_session.py"
 
 # Read stdin from the hook payload

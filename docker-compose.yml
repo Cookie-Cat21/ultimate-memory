@@ -38,7 +38,7 @@ services:
     ports:
       - "8788:8788"
     volumes:
-      - "C:\\Users\\Ovindu\\basic-memory:/vault"
+      - "${ULTIMATE_MEMORY_VAULT_PATH:-./vault}:/vault"
       - "./.ultimate-memory:/app/.ultimate-memory"
     depends_on:
       - qdrant

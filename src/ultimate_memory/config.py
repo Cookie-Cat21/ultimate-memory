@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-DEFAULT_CONFIG = Path(
-    r"C:\Users\Ovindu\Documents\Pet Projects\ultimate-memory\config\ultimate-memory.toml"
-)
+# Falls back to <repo_root>/config/ultimate-memory.toml (copy
+# config/ultimate-memory.toml.example there and edit the paths) unless
+# ULTIMATE_MEMORY_CONFIG points somewhere else.
+DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "ultimate-memory.toml"
 
 
 @dataclass(frozen=True)

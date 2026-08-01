@@ -3,6 +3,7 @@ name = "ultimate-memory"
 version = "0.2.0"
 description = "Local-first atomic bi-temporal MCP memory router for Claude Code and Codex."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "fastapi>=0.116.0",
@@ -29,6 +30,11 @@ llm = [
     "transformers>=4.40.0,<5.0",
     "torch>=2.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Cookie-Cat21/ultimate-memory"
+Repository = "https://github.com/Cookie-Cat21/ultimate-memory"
+Issues = "https://github.com/Cookie-Cat21/ultimate-memory/issues"
 
 [project.scripts]
 ultimate-memory-router = "ultimate_memory.server:main"
