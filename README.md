@@ -9,6 +9,8 @@
 
 Most agent memory tools give you a vector DB and call it a day: dump every message in, cosine-similarity it back out, and hope stale facts don't win. Ultimate Memory instead treats memory like a small knowledge base — **typed atomic facts** with **validity windows**, **auto-superseding contradictions**, **salience-ranked retrieval**, and a **human-readable Markdown vault** as the canonical source of truth. It runs entirely on your machine, speaks [MCP](https://modelcontextprotocol.io) to Claude Code and Codex, and degrades gracefully if Docker isn't running.
 
+![Contradiction-aware memory: an old fact gets automatically superseded when a new, conflicting one arrives, and search only ever returns the current one.](docs/demo.gif)
+
 ## Contents
 
 - [Why](#why-this-can-beat-typical-agent-memory-stacks)
