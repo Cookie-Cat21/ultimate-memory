@@ -1912,8 +1912,8 @@ def _how_many(
                 rf"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+{re.escape(term)}\b",
                 rf"\b{re.escape(term)}\s*[:=]?\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
                 rf"\b(?:has|have|with|owns?|adopted)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+{re.escape(term)}\b",
-                rf"\badopted\b[^.!?]{{0,40}}\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
-                rf"\b(?:won|participated in|organized|attended|written|wrote|rejected)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
+                r"\badopted\b[^.!?]{0,40}\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
+                r"\b(?:won|participated in|organized|attended|written|wrote|rejected)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
             ):
                 match = re.search(pattern, lower)
                 if not match:

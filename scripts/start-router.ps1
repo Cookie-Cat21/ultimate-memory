@@ -1,5 +1,5 @@
 $ErrorActionPreference = "Stop"
-$repo = "C:\Users\Ovindu\Documents\Pet Projects\ultimate-memory"
+$repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 uv run ultimate-memory-router
 

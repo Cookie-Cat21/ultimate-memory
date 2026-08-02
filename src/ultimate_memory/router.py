@@ -37,14 +37,19 @@ from .aggregate import (
     detect_aggregate_intent,
     filter_list_items_for_question,
     first_person,
+    harvest_list_items,
     merge_list_answers,
 )
 from .answer import f1_ready_text, synthesize_answer
 from .hops import (
+    MAX_HOP_DEPTH,
     MAX_HOP_SEARCHES,
+    MULTI_HOP_SEARCH_BUDGET,
     build_hop_queries,
+    extract_capitalized_entities,
     extract_hop_entities,
     merge_contexts,
+    normalize_entity,
 )
 from .llm_answer import use_llm_from_env
 from .store import LocalStore
@@ -299,31 +304,98 @@ class MemoryRouter:
                     self._atom_to_search_result(atom, score=max(atom.salience, 0.55)).model_dump()
                 )
 
-        hop_entities = extract_hop_entities(question, search_result["results"])
-        hop_queries = build_hop_queries(
+        # Chained multi-hop retrieval: walk the bridge-entity graph transitively
+        # instead of stopping after one follow-up pass. Entities discovered in
+        # a hop-N search become the seeds for hop-(N+1) queries, capped by
+        # hop_depth / hop_budget. multi_hop questions typically need 2+ bridges
+        # (e.g. Elena -> Elena's sister Fiona -> Fiona's employer -> employer's
+        # HQ city), so they get a deeper walk and a larger search budget than
+        # the other three categories, which keep the original depth-1 /
+        # budget-3 behavior to avoid any regression.
+        strict_entities = category == "multi_hop"
+        if category == "multi_hop":
+            hop_depth = MAX_HOP_DEPTH
+            hop_budget = max(max_hop_searches, MULTI_HOP_SEARCH_BUDGET)
+        else:
+            hop_depth = 1
+            hop_budget = max_hop_searches
+
+        seen_entity_keys: set[str] = {
+            normalize_entity(e)
+            for e in extract_capitalized_entities(question, strict=strict_entities)
+        }
+        # Excluding question-mentioned entities from the hop-1 frontier is only
+        # needed for chained levels (so hop 2+ doesn't re-walk an entity already
+        # queried). Master's original single-pass code never excluded them here
+        # at all — it let build_hop_queries' own bridge/fallback logic decide —
+        # so applying the exclusion at hop 1 for every category (not just
+        # multi_hop) shrank the single_hop/temporal/open_domain candidate pool
+        # and regressed their scores. Only pre-filter the initial frontier when
+        # chaining is actually in play.
+        frontier = extract_hop_entities(
             question,
-            hop_entities,
-            max_queries=min(2, max_hop_searches),
+            search_result["results"],
+            exclude=seen_entity_keys if category == "multi_hop" else None,
+            strict=strict_entities,
         )
+        hop_entities: list[str] = list(frontier)
         hop_searches: list[dict] = []
         hop_contexts: list[dict] = []
-        for hop_query in hop_queries[:max_hop_searches]:
-            hop_result = self.search(
-                query=hop_query,
-                project_path=project_path,
-                limit=limit,
-                as_of=as_of,
+        depth = 0
+        while frontier and depth < hop_depth and len(hop_searches) < hop_budget:
+            remaining = hop_budget - len(hop_searches)
+            hop_queries = build_hop_queries(
+                question,
+                frontier,
+                max_queries=min(2, remaining) if remaining > 0 else 0,
+                strict=strict_entities,
             )
-            hop_searches.append({"query": hop_query, "search": hop_result})
-            for item in hop_result["results"]:
-                if not item.get("text"):
-                    continue
-                boosted = dict(item)
-                provenance = dict(boosted.get("provenance") or {})
-                provenance["hop"] = True
-                boosted["provenance"] = provenance
-                boosted["score"] = float(boosted.get("score") or 0.0) + 0.35
-                hop_contexts.append(boosted)
+            if not hop_queries:
+                break
+            next_frontier: list[str] = []
+            for hop_query in hop_queries:
+                if len(hop_searches) >= hop_budget:
+                    break
+                hop_result = self.search(
+                    query=hop_query,
+                    project_path=project_path,
+                    limit=limit,
+                    as_of=as_of,
+                )
+                hop_searches.append({"query": hop_query, "search": hop_result})
+                for item in hop_result["results"]:
+                    if not item.get("text"):
+                        continue
+                    boosted = dict(item)
+                    provenance = dict(boosted.get("provenance") or {})
+                    provenance["hop"] = True
+                    provenance["hop_depth"] = depth + 1
+                    boosted["provenance"] = provenance
+                    # Later hops are slightly less trusted than hop 1 (they are
+                    # further from the question), but still boosted above the
+                    # base single-hop search results.
+                    boosted["score"] = float(boosted.get("score") or 0.0) + max(
+                        0.35 - 0.1 * depth, 0.1
+                    )
+                    hop_contexts.append(boosted)
+                # Seed the next level from entities newly discovered in this
+                # hop's results only (not re-walking entities already queried).
+                for ent in extract_hop_entities(
+                    question,
+                    hop_result["results"],
+                    limit=4,
+                    exclude=seen_entity_keys,
+                    include_freetext=False,
+                    strict=strict_entities,
+                ):
+                    key = normalize_entity(ent)
+                    if key in seen_entity_keys:
+                        continue
+                    seen_entity_keys.add(key)
+                    next_frontier.append(ent)
+                    hop_entities.append(ent)
+            frontier = next_frontier
+            depth += 1
 
         rich_contexts = merge_contexts(rich_contexts, hop_contexts)
 

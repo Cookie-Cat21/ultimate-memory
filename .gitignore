@@ -10,6 +10,7 @@ __pycache__/
 data/
 .env
 config/ultimate-memory.toml
+/vault/
 
 
 # Benchmark run artifacts

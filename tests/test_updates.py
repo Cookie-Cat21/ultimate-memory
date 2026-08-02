@@ -16,7 +16,7 @@ from ultimate_memory.config import (
     RetrievalConfig,
     Settings,
 )
-from ultimate_memory.models import AtomicMemory, MemoryType, ReflectionPayload
+from ultimate_memory.models import ReflectionPayload
 from ultimate_memory.router import MemoryRouter
 
 CAROL_OLD = "Carol lives in New York City."

@@ -1,0 +1,12 @@
+.venv/
+.git/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+.ultimate-memory/
+.env
+data/
+vault/
+evals/results/
+evals/data/

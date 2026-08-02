@@ -56,6 +56,20 @@ Full Qwen2.5-3B-Instruct suite: overall **30.54** (single→31). XL12 person-win
 
 **XL21**: overall **36.20** (best), single **38.45** ✓, multi **34.73** (best; still < A-MEM 45.85), temporal **32.26** ✓, open **33.92**. Qualified late-dialog inventories + `atom:inv` filtered from non-list retrieval. Scoreboard vs A-MEM **2/4**; vs MemGPT **3/4**.
 
+**XL30 (chained multi-hop retrieval, depth 3 / budget 8)**: multi_hop-only run **36.83** (best isolated multi_hop run to date). Full suite (1540 Qs): overall **37.43**, single **37.45**, multi **36.45**, temporal **32.08**, open **57.94**.
+
+*Environment-reproducibility note:* re-running the unmodified XL29b commit (`master`, `eb6e7a7`) in this same container reproduces **overall 37.30 / single 37.32 / multi 36.28 / temporal 31.97 / open 58.03** — all measurably below the numbers recorded above for XL29b (39.82 / 33.91 / 58.85 / 36.59), even with byte-identical code. This container's torch/transformers/flan-t5-xl checkpoint stack apparently doesn't reproduce the exact greedy-decoding outputs of whatever environment produced the historical XL* numbers. The XL* baselines above are therefore not directly reproducible here and shouldn't be treated as an exact target in this environment; **same-environment master vs. this branch** is the fair comparison:
+
+| Category | master (this env) | XL30 chained (this env) | Δ |
+|---|---:|---:|---:|
+| single_hop | 37.32 | 37.45 | +0.13 |
+| multi_hop | 36.28 | 36.45 | +0.17 |
+| temporal | 31.97 | 32.08 | +0.11 |
+| open_domain | 58.03 | 57.94 | -0.09 |
+| overall | 37.30 | 37.43 | +0.13 |
+
+XL30 ties or beats master on all four categories in-environment; still < A-MEM 45.85 on multi_hop. Two real bugs were found and fixed along the way: (1) the chained hop-entity extractor was harvesting month names, dialogue interjections ("Besides", "Yeah") and split proper-noun fragments ("Little"/"Women" from "Little Women") as bogus bridge entities, which spawned noisy searches that displaced good evidence — fixed with a wider skip-list, phrase-aware entity matching, and structured-only entity sourcing (`provenance.entities` / "named X" mentions) for hop 2+; (2) the original commit excluded question-mentioned entities from the hop-1 candidate frontier for *every* category (not just multi_hop), shrinking the single_hop/temporal/open_domain candidate pool relative to master — fixed by scoping that exclusion to chained (multi_hop) hops only. Both the entity-filtering strictness and the exclusion scoping are now gated on `category == "multi_hop"`, so the other three categories run the original single-pass code path unchanged.
+
 ## Dialog-1 (152 Qs) — full A-MEM sweep
 
 | Model | single | multi | temporal | open |

@@ -102,7 +102,9 @@ class TestChunking:
         )
         chunks = chunk_text(text, chunk_chars=600, overlap=60)
         for chunk in chunks:
-            n_open = len([l for l in chunk.splitlines() if l.strip().startswith("```") and len(l.strip()) > 3])
+            n_open = len(
+                [line for line in chunk.splitlines() if line.strip().startswith("```") and len(line.strip()) > 3]
+            )
             n_close = chunk.count("\n```\n") + (1 if chunk.endswith("\n```") else 0)
             # Either both fence markers are in this chunk or neither
             assert n_open == n_close, (
