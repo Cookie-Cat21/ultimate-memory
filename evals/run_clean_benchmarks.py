@@ -156,6 +156,7 @@ def run(
     planner_correct = 0
     planner_confusion: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     asked = 0
+    diagnostics: list[dict] = []
     started = time.perf_counter()
 
     for sample in data:
@@ -209,6 +210,19 @@ def run(
             planner_total += 1
             planner_correct += int(planned_kind == expected_kind)
             planner_confusion[expected_kind][planned_kind] += 1
+            diagnostics.append({
+                "sample_id": sample_id,
+                "category": category,
+                "question": qa["question"],
+                "gold": golds,
+                "answer": result["answer"],
+                "token_f1": round(100 * score, 2),
+                "evidence_recall": round(100 * evidence_score, 2),
+                "gold_token_coverage": round(100 * coverage, 2),
+                "planned_kind": planned_kind,
+                "expected_kind": expected_kind,
+                "top_contexts": [str(x)[:320] for x in contexts_used[:4]],
+            })
             asked += 1
 
         if max_questions is not None and asked >= max_questions:
@@ -258,6 +272,17 @@ def run(
         "by_category": by_category,
         "use_llm": use_llm,
         "use_reader": use_reader,
+        "worst_answer_failures": sorted(
+            diagnostics,
+            key=lambda item: (item["token_f1"], -item["gold_token_coverage"]),
+        )[:12],
+        "retrieval_failures": sorted(
+            diagnostics,
+            key=lambda item: (item["gold_token_coverage"], item["evidence_recall"]),
+        )[:12],
+        "planner_misses": [
+            item for item in diagnostics if item["planned_kind"] != item["expected_kind"]
+        ][:12],
     }
 
 
