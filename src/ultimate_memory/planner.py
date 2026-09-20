@@ -73,6 +73,12 @@ def _is_collective_multi_hop(question: str, entities: list[str]) -> bool:
     lower = question.lower()
     if _COLLECTIVE_RE.search(lower) or _LIST_OR_SET_RE.search(lower):
         return True
+    if re.search(
+        r"\bhow\s+long\b.*\b(?:take|took|until|from|between|before|after)\b|"
+        r"\b(?:duration|elapsed|time\s+between)\b",
+        lower,
+    ):
+        return True
     if len(entities) >= 2 and re.search(r"\b(?:and|versus|vs\.?|compared?\s+to)\b", lower):
         return True
     return False
@@ -147,6 +153,8 @@ def _expansions(question: str) -> list[str]:
         expansions.append("offer provides services classes workshops training")
     if _is_temporal_question(question):
         expansions.append("date year month day when duration time")
+    if re.search(r"\bhow\s+long\b|\bduration\b|\belapsed\b", lower):
+        expansions.append("started began finished completed opened duration elapsed")
     return list(dict.fromkeys(expansions))
 
 
