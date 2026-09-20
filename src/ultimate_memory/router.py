@@ -407,10 +407,24 @@ class MemoryRouter:
             semantic_results = _local_semantic()
 
         results = self._rrf_rank(
-            [vector_results, keyword_results, bm_results, atom_results, semantic_results],
+            [vector_results, keyword_results, bm_results, atom_results],
             memory_types=memory_types,
             limit=actual_limit * 2,
         )
+
+        # Local semantic retrieval is a recall supplement, not an equal RRF voter.
+        # This preserves strong lexical/direct evidence while still allowing
+        # paraphrased candidates to enter the final generic reranker.
+        existing_keys = {result.source_path or result.id for result in results}
+        for semantic in semantic_results:
+            key = semantic.source_path or semantic.id
+            if key in existing_keys:
+                continue
+            semantic.score *= 0.82
+            semantic.provenance["supplemental_semantic"] = True
+            results.append(semantic)
+            existing_keys.add(key)
+
         results = self._apply_salience_rerank(results)
         query_plan = plan_query(query, as_of=as_of)
         results = rerank_candidates(query, results, query_plan)[:actual_limit]
