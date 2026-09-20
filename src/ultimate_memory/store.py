@@ -349,6 +349,7 @@ class LocalStore:
         *,
         limit: int = 8,
         memory_types: list[str] | None = None,
+        project_path: str | None = None,
         include_superseded: bool = False,
         as_of: str | None = None,
     ) -> list[AtomicMemory]:
@@ -401,6 +402,8 @@ class LocalStore:
             elif not include_superseded and not atom.is_active:
                 continue
             if allowed and atom.memory_type.value not in allowed:
+                continue
+            if project_path and atom.project_path not in (None, "", project_path):
                 continue
             atoms.append(atom)
             if len(atoms) >= limit:
