@@ -48,6 +48,11 @@ def rerank_candidates(
         if provenance.get("direct_turn") or provenance.get("dia_id"):
             direct_overlap = len(q_tokens & r_tokens) / len(q_tokens) if q_tokens else 0.0
             score += 0.12 + 0.18 * direct_overlap
+
+        if provenance.get("compiled"):
+            confidence = float(provenance.get("compiler_confidence") or 0.0)
+            score += min(0.10, max(0.0, confidence) * 0.10)
+
         if "auto-extracted from" in text_lower:
             score -= 0.08
 
