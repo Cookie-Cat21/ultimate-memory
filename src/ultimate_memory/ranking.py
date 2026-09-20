@@ -22,17 +22,19 @@ def filter_entity_scoped_results(
     *,
     min_matches: int = 2,
 ) -> list[dict]:
-    """Prefer evidence explicitly attached to the entities named in the query.
+    """Prefer and balance evidence attached to entities named in the query.
 
-    This is intentionally a post-retrieval gate rather than a storage filter:
-    global memories remain available, and multi-hop callers can simply skip this
-    helper when bridge-entity traversal is required.
+    For one entity this is a hard topical gate when enough evidence exists.
+    For multiple named entities, matched evidence is interleaved so one person's
+    larger memory history cannot crowd the other person out of the context packet.
     """
     entity_keys = [entity.strip().casefold() for entity in entities if entity.strip()]
     if not entity_keys or not results:
         return list(results)
 
     matched: list[dict] = []
+    buckets: dict[str, list[dict]] = {key: [] for key in entity_keys}
+
     for item in results:
         text = str(item.get("text") or "").casefold()
         provenance = item.get("provenance") or {}
@@ -43,16 +45,47 @@ def filter_entity_scoped_results(
         }
         speaker = str(provenance.get("speaker") or "").strip().casefold()
 
-        if any(
-            key in text
-            or key == speaker
-            or key in prov_entities
+        item_entities = [
+            key
             for key in entity_keys
-        ):
-            matched.append(item)
+            if key in text or key == speaker or key in prov_entities
+        ]
+        if not item_entities:
+            continue
+        matched.append(item)
+        for key in item_entities:
+            buckets[key].append(item)
 
-    # Never collapse a query to an unusably tiny evidence pool.
-    return matched if len(matched) >= min_matches else list(results)
+    if len(matched) < min_matches:
+        return list(results)
+
+    if len(entity_keys) == 1 or not all(buckets[key] for key in entity_keys):
+        return matched
+
+    # Round-robin the per-entity rankings, then append any remaining matched
+    # evidence in its original order. Items mentioning both entities are deduped.
+    balanced: list[dict] = []
+    seen: set[str] = set()
+    max_len = max(len(bucket) for bucket in buckets.values())
+    for index in range(max_len):
+        for key in entity_keys:
+            bucket = buckets[key]
+            if index >= len(bucket):
+                continue
+            item = bucket[index]
+            item_key = str(item.get("id") or item.get("source_path") or id(item))
+            if item_key in seen:
+                continue
+            seen.add(item_key)
+            balanced.append(item)
+
+    for item in matched:
+        item_key = str(item.get("id") or item.get("source_path") or id(item))
+        if item_key in seen:
+            continue
+        seen.add(item_key)
+        balanced.append(item)
+    return balanced
 
 
 
