@@ -334,8 +334,9 @@ class MemoryRouter:
         temporal_query = as_of is None and is_temporal_query(query)
         if temporal_query:
             include_superseded = True
+        query_plan = plan_query(query, as_of=as_of)
 
-        # --- run all five sources in parallel --------------------------------
+        # --- run retrieval sources --------------------------------------------
         def _vector():
             return self.vector.search(
                 query,
@@ -375,6 +376,26 @@ class MemoryRouter:
                 prefer_older_valid_from=temporal_query,
             )
 
+        def _entity_atoms():
+            atoms = self.store.search_atoms_by_entities(
+                query_plan.entities,
+                limit=actual_limit,
+                memory_types=memory_types,
+                project_path=project_path,
+                include_superseded=include_superseded,
+                as_of=as_of,
+            )
+            entity_results: list[SearchResult] = []
+            for atom in atoms:
+                result = self._atom_to_search_result(
+                    atom,
+                    score=max(atom.salience, 0.58),
+                )
+                result.provenance["entity_match"] = True
+                result.provenance["matched_query_entities"] = list(query_plan.entities)
+                entity_results.append(result)
+            return entity_results
+
         def _graph():
             return self.graph.query(query, depth=1) if self._graph_ready else []
 
@@ -385,17 +406,17 @@ class MemoryRouter:
             # SQLite store is not thread-safe; keep local FTS/atom queries on main thread.
             keyword_results = _keyword()
             atom_results = _atoms()
+            entity_atom_results = _entity_atoms()
             vector_results: list[SearchResult] = fv.result()
             bm_results: list[SearchResult] = fb.result()
             graph_hits: list[dict] = fg.result()
 
         results = self._rrf_rank(
-            [vector_results, keyword_results, bm_results, atom_results],
+            [vector_results, keyword_results, bm_results, atom_results, entity_atom_results],
             memory_types=memory_types,
             limit=actual_limit * 2,
         )
         results = self._apply_salience_rerank(results)
-        query_plan = plan_query(query, as_of=as_of)
         results = rerank_candidates(query, results, query_plan)[:actual_limit]
 
         touched = [
@@ -416,6 +437,7 @@ class MemoryRouter:
             "results": [result.model_dump() for result in results],
             "graph_hits": graph_hits[:5],
             "atoms_considered": len(atom_results),
+            "entity_atoms_considered": len(entity_atom_results),
             "query_plan": query_plan.model_dump(),
         }
 
