@@ -143,7 +143,7 @@ _DURATION_SPAN_RE = re.compile(
 
 _GREETING_ONLY_RE = re.compile(
     r"^(?:\[D\d+:\d+\]\s*)?(?:[A-Z][a-z]+\s*:\s*)?"
-    r"(?:hey|hi|hello|thanks|thank\s+you|wow|great|awesome|nice|cool|sure|yep|yeah)"
+    r"(?:hey|hi|hello|thanks(?:\s+a\s+bunch)?|thank\s+you|wow|great|awesome|nice|cool|sure|yep|yeah)"
     r"(?:[\s,!.'-]+[A-Z][a-z]+)?[!?.]*$",
     re.I,
 )
@@ -389,6 +389,30 @@ def _extract_date_spans(sentence: str) -> list[str]:
                 seen.add(key)
                 spans.append(span)
     return spans
+
+
+def _display_date(span: str) -> str:
+    """Render ISO-style dates as compact human-readable dates."""
+    value = span.strip()
+    match = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})(?:[T ][^\s]+)?", value)
+    if match:
+        year, month, day = map(int, match.groups())
+        months = (
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        )
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return f"{day} {months[month - 1]} {year}"
+    match = re.fullmatch(r"(\d{4})-(\d{2})", value)
+    if match:
+        year, month = map(int, match.groups())
+        months = (
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        )
+        if 1 <= month <= 12:
+            return f"{months[month - 1]} {year}"
+    return value
 
 
 def _is_relative_only_date(span: str) -> bool:
@@ -1152,8 +1176,8 @@ def synthesize_answer(
                 if not _is_relative_only_date(date) or all(
                     _is_relative_only_date(d) for _, d in dated
                 ):
-                    return _truncate(date, max_chars)
-            return _truncate(dated[0][1], max_chars)
+                    return _truncate(_display_date(date), max_chars)
+            return _truncate(_display_date(dated[0][1]), max_chars)
         dates = _prefer_absolute_date_spans(
             _extract_duration_spans(best.text)
             or _extract_date_spans(best.text)
@@ -1161,7 +1185,7 @@ def synthesize_answer(
             or _extract_date_spans(best.sentence)
         )
         if dates:
-            return _truncate(dates[0], max_chars)
+            return _truncate(_display_date(dates[0]), max_chars)
         # Avoid vague relative answers when no absolute date is available.
         if re.search(
             r"\b(?:last|next|this)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|weekend|month)\b",
@@ -1173,7 +1197,7 @@ def synthesize_answer(
                     _extract_date_spans(cand.text) or _extract_date_spans(cand.sentence)
                 )
                 if alt and not _is_relative_only_date(alt[0]):
-                    return _truncate(alt[0], max_chars)
+                    return _truncate(_display_date(alt[0]), max_chars)
 
     if kind == "where":
         locs = _extract_location_spans(best.text) or _extract_location_spans(best.sentence)
@@ -1209,9 +1233,12 @@ def synthesize_answer(
         list_answer = _list_answer(question, normalized, max_chars)
         if list_answer:
             parts = _split_sentences(list_answer)
-            if len(parts) >= 2 or any(
+            if "," in list_answer or len(parts) >= 2 or any(
                 cue in list_answer.lower()
-                for cue in ("visited", "trip to", "offer", "provid", "classes", "workshops", "training")
+                for cue in (
+                    "visited", "trip to", "offer", "provid",
+                    "classes", "workshops", "training",
+                )
             ):
                 return list_answer
 
