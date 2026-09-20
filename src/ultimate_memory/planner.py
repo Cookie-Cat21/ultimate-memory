@@ -39,7 +39,8 @@ _TEMPORAL_QUESTION_RE = re.compile(
     r"\bhow\s+many\s+(?:years?|months?|weeks?|days?|hours?)\b|"
     r"\b(?:years?|months?|weeks?|days?|hours?)\s+ago\b|"
     r"\b(?:since|until|during)\b|"
-    r"\b(?:before|after|earlier|later|previously|formerly|prior)\b"
+    r"\b(?:before|after|earlier|later|previously|formerly|prior)\b|"
+    r"\b(?:recent|recently|latest|newest|most\s+recent)\b"
 )
 
 _COLLECTIVE_RE = re.compile(
@@ -188,7 +189,10 @@ def plan_query(question: str, *, as_of: str | None = None) -> QueryPlan:
         temporal_mode = "historical"
         include_superseded = True
         signals.append("historical_language")
-    elif re.search(r"\b(now|current|currently|today|latest)\b", lower):
+    elif re.search(
+        r"\b(now|current|currently|today|latest|recent|recently|newest|most\s+recent)\b",
+        lower,
+    ):
         temporal_mode = "current"
         include_superseded = False
         signals.append("current_language")
@@ -204,7 +208,7 @@ def plan_query(question: str, *, as_of: str | None = None) -> QueryPlan:
     if depth > 1:
         kind = "multi_hop"
         signals.append(f"relation_chain_depth_{depth}")
-    elif temporal_mode in {"historical", "as_of"} or temporal_question:
+    elif temporal_mode != "unspecified" or temporal_question:
         kind = "temporal"
     else:
         kind = "single_hop"
