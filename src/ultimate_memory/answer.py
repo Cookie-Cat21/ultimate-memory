@@ -181,6 +181,17 @@ _IDENTITY_PHRASE_RE = re.compile(
     r"\btransgender\b|\b(?:trans\s+)?woman\b|\b(?:trans\s+)?man\b|\bidentity\b",
     re.I,
 )
+_EXPLICIT_IDENTITY_RE = re.compile(
+    r"\b(transgender\s+(?:woman|man)|trans\s+(?:woman|man)|nonbinary|non-binary)\b",
+    re.I,
+)
+_FAVORITE_VALUE_RE = re.compile(
+    r"\b(?:my|his|her|their|[A-Z][a-z]+'s)\s+"
+    r"(?:favorite|favourite)\s+[^.!?,:]{0,50}?\s+(?:is|are)\s+([^.!?,;]{1,70})|"
+    r"\b([^.!?,;]{1,50})\s+(?:is|are)\s+"
+    r"(?:my|his|her|their|[A-Z][a-z]+'s)\s+(?:favorite|favourite)\b",
+    re.I,
+)
 
 _JUNK_LINE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^#"),
@@ -313,6 +324,42 @@ def _is_occupation_question(question: str) -> bool:
 
 def _is_identity_question(question: str) -> bool:
     return bool(_IDENTITY_QUESTION_RE.search(question))
+
+
+def _favorite_subject(question: str) -> bool:
+    return bool(re.search(r"\bfavou?rite\b", question, re.I))
+
+
+def _precise_scalar_answer(question: str, normalized: list["_ContextItem"]) -> str | None:
+    """Return high-precision scalar values before generic span ranking."""
+    identity = _is_identity_question(question)
+    favorite = _favorite_subject(question)
+
+    if identity:
+        for item in normalized:
+            match = _EXPLICIT_IDENTITY_RE.search(item.text)
+            if match:
+                return match.group(1).strip()
+
+    if favorite:
+        q_words = _content_words(question)
+        entities = _question_entities(question)
+        candidates: list[tuple[float, str]] = []
+        for item in normalized:
+            for sentence in _split_sentences(item.text):
+                match = _FAVORITE_VALUE_RE.search(sentence)
+                if not match:
+                    continue
+                value = (match.group(1) or match.group(2) or "").strip(" .,:;-")
+                if not value:
+                    continue
+                score = _overlap_score(q_words, sentence, entities)
+                candidates.append((score, value))
+        if candidates:
+            candidates.sort(key=lambda pair: (pair[0], -len(pair[1])), reverse=True)
+            return candidates[0][1]
+
+    return None
 
 
 def _dialogue_turn_bonus(
@@ -1142,6 +1189,10 @@ def synthesize_answer(
     normalized = [item for item in _normalize_contexts(contexts) if _is_usable_context(item)]
     if not normalized:
         return ""
+
+    precise = _precise_scalar_answer(question, normalized)
+    if precise:
+        return _truncate(precise, max_chars)
 
     temporal_bias = _question_temporal_bias(question)
     kind = _question_kind(question)
