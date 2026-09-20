@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
-_WORD_RE = re.compile(r"[A-Za-z0-9_.-]{2,}")
+_WORD_RE = re.compile(r"[A-Za-z0-9_-]{2,}")
 
 
 def _tokens(text: str) -> set[str]:
