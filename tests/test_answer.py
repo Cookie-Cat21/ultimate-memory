@@ -317,3 +317,25 @@ def test_list_synthesis_extracts_quoted_titles():
     answer = synthesize_answer("What books has Alex read?", contexts)
     assert "Dune" in answer and "The Hobbit" in answer
     assert len(answer) < 80
+
+
+def test_ingestion_indexes_question_response_pair(tmp_path):
+    router = MemoryRouter(make_settings(tmp_path))
+    transcript = """---
+session_date: 10 May 2023
+---
+[D1:1] Melanie: What pet do you have?
+[D1:2] Caroline: I have a guinea pig named Clover.
+"""
+    router.ingest_log(
+        client="test",
+        session_id="pair-index",
+        transcript_or_path=transcript,
+        project_path="/project",
+    )
+    result = router.search("pet Caroline", project_path="/project", limit=10)
+    pair_hits = [
+        item for item in result["results"]
+        if "What pet do you have?" in item["text"] and "guinea pig" in item["text"]
+    ]
+    assert pair_hits
