@@ -50,7 +50,6 @@ from .hops import (
 )
 from .llm_answer import use_llm_from_env
 from .planner import plan_query
-from .propositions import turn_propositions
 from .ranking import rerank_candidates
 from .store import LocalStore
 
@@ -952,7 +951,7 @@ class MemoryRouter:
                     },
                 )
             )
-            if informative and len(atoms) < 120:
+            if informative and len(atoms) < 40:
                 atoms.append(
                     AtomicMemory(
                         id=f"atom:turn:{safe_session}:{turn.dia_id}",
@@ -968,42 +967,9 @@ class MemoryRouter:
                             "dia_id": turn.dia_id,
                             "speaker": turn.speaker,
                             "session_id": session_id,
-                            "kind": "turn",
                         },
                     )
                 )
-
-                propositions = turn_propositions(turn.speaker, resolved)
-                for prop_index, proposition in enumerate(propositions):
-                    # Avoid storing a second atom when the proposition is just the
-                    # same turn with a speaker prefix.
-                    normalized_turn = re.sub(r"\\W+", " ", f"{turn.speaker}: {resolved}").strip().casefold()
-                    normalized_prop = re.sub(r"\\W+", " ", proposition).strip().casefold()
-                    if normalized_prop == normalized_turn:
-                        continue
-                    if len(atoms) >= 120:
-                        break
-                    atoms.append(
-                        AtomicMemory(
-                            id=f"atom:prop:{safe_session}:{turn.dia_id}:{prop_index}",
-                            text=proposition,
-                            memory_type=MemoryType.FACT,
-                            project_path=project_path,
-                            entities=extract_turn_entities(turn.speaker, proposition),
-                            source_refs=[f"session:{session_id}", f"turn:{turn.dia_id}"],
-                            created_at=stamp,
-                            valid_from=stamp,
-                            event_time=event_time,
-                            metadata={
-                                "dia_id": turn.dia_id,
-                                "speaker": turn.speaker,
-                                "session_id": session_id,
-                                "kind": "proposition",
-                                "parent_turn_id": f"turn:{safe_session}:{turn.dia_id}",
-                                "proposition_index": prop_index,
-                            },
-                        )
-                    )
 
         return chunks, atoms
 
@@ -1179,8 +1145,6 @@ class MemoryRouter:
                 "entities": atom.entities,
                 "project_path": atom.project_path,
                 "claim": atom.metadata.get("claim"),
-                "kind": atom.metadata.get("kind"),
-                "parent_turn_id": atom.metadata.get("parent_turn_id"),
             },
         )
 
