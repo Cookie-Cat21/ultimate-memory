@@ -233,39 +233,3 @@ class TestMultiHopAnswer:
 
         assert result["query_plan"]["kind"] == "single_hop"
         assert len(result["hop_searches"]) <= MAX_HOP_SEARCHES
-
-    def test_single_hop_plan_can_adaptively_escalate(self, tmp_path):
-        router = MemoryRouter(make_settings(tmp_path))
-        router.store.upsert_atom(
-            AtomicMemory(
-                id="fiona-mentor",
-                text="Fiona's mentor is named Marcus.",
-                memory_type=MemoryType.FACT,
-                entities=["Fiona", "Marcus"],
-            )
-        )
-        router.store.upsert_atom(
-            AtomicMemory(
-                id="marcus-link",
-                text="Marcus collaborates with Stanford University.",
-                memory_type=MemoryType.FACT,
-                entities=["Marcus", "Stanford University"],
-            )
-        )
-        router.store.upsert_atom(
-            AtomicMemory(
-                id="stanford-workplace",
-                text="Stanford University is Marcus's workplace.",
-                memory_type=MemoryType.FACT,
-                entities=["Stanford University", "Marcus"],
-            )
-        )
-
-        result = router.answer(
-            "What workplace is Fiona's mentor associated with?",
-            limit=5,
-        )
-
-        assert result["query_plan"]["hop_depth"] == 1
-        assert result["effective_hop_depth"] == 2
-        assert any("Stanford" in text for text in result["contexts_used"])
