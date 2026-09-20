@@ -284,12 +284,20 @@ class MemoryRouter:
             else rich_contexts
         )
 
-        use_local_llm = use_llm_from_env() if use_llm is None else use_llm
+        # Keep retrieval evidence text stable for metrics and deterministic
+        # extraction. Date-rendered contexts are an answer-model aid only.
         context_texts = [
+            str(item.get("text") or "")
+            for item in rich_contexts
+            if item.get("text")
+        ]
+        answer_context_texts = [
             str(item.get("text") or "")
             for item in answer_contexts
             if item.get("text")
         ]
+
+        use_local_llm = use_llm_from_env() if use_llm is None else use_llm
 
         reader_used = False
         if use_reader and answer_contexts:
@@ -308,18 +316,19 @@ class MemoryRouter:
             try:
                 from .llm_answer import get_local_answerer
 
-                answer_text = get_local_answerer().answer(question, context_texts[:18])
+                answer_text = get_local_answerer().answer(question, answer_context_texts[:18])
             except Exception as exc:
                 logger.warning("Local LLM answer failed, falling back to extractive: %s", exc)
-                answer_text = synthesize_answer(question, answer_contexts)
+                answer_text = synthesize_answer(question, rich_contexts)
         elif not answer_text:
-            answer_text = synthesize_answer(question, answer_contexts)
+            answer_text = synthesize_answer(question, rich_contexts)
 
         return {
             "question": question,
             "answer": answer_text,
             "f1_text": f1_ready_text(answer_text),
             "contexts_used": context_texts,
+            "answer_contexts_used": answer_context_texts,
             "search": search_result,
             "query_plan": plan.model_dump(),
             "hop_entities": list(dict.fromkeys(hop_entities)),
