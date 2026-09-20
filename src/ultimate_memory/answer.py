@@ -112,7 +112,7 @@ _DATE_PATTERNS: list[re.Pattern[str]] = [
         r"October|November|December)\s+\d{4}\b",
         re.I,
     ),
-    re.compile(r"\b\d+\s+years?\s+ago\b", re.I),
+    re.compile(r"\b(?:a\s+few|several|\d+)\s+years?\s+ago\b", re.I),
     re.compile(r"\b(?:in|on|during)\s+(?:the\s+)?(?:year\s+)?((?:19|20)\d{2})\b", re.I),
     re.compile(r"\b(?:19|20)\d{2}\b"),
     re.compile(r"\b(?:last|next)\s+(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b", re.I),
@@ -122,7 +122,7 @@ _RELATIVE_ONLY_DATE_RE = re.compile(
     r"^(?:last|next|this)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
     r"week|weekend|month|year)$|"
     r"^(?:yesterday|today|tomorrow|recently|earlier|later)$|"
-    r"^(?:a few days ago|two days ago|2 days ago|last night)$",
+    r"^(?:a few days ago|a few years ago|several years ago|two days ago|2 days ago|last night)$",
     re.I,
 )
 
@@ -432,6 +432,7 @@ class _ContextItem:
     memory_type: str = "note"
     provenance: dict[str, Any] | None = None
     score: float = 0.0
+    session_date: str | None = None
 
 
 @dataclass(frozen=True)
@@ -463,25 +464,100 @@ def _filter_context_text(text: str) -> str:
     return "\n".join(kept).strip()
 
 
+def _context_session_date(text: str, provenance: dict[str, Any] | None = None) -> str | None:
+    provenance = provenance or {}
+    for key in ("session_date", "event_time", "created_at"):
+        value = provenance.get(key)
+        if value:
+            spans = _extract_date_spans(str(value))
+            if spans:
+                return spans[0]
+            if str(value).strip():
+                return str(value).strip()
+    for line in text.splitlines()[:8]:
+        lower = line.strip().lower()
+        if lower.startswith(("session_date:", "created_at:", "event_time:", "date:")):
+            value = line.split(":", 1)[1].strip()
+            spans = _extract_date_spans(value)
+            return spans[0] if spans else value
+    return None
+
+
+def _is_list_question(question: str) -> bool:
+    lower = question.lower()
+    return bool(
+        re.search(
+            r"\bboth\b|\ball\b|"
+            r"\bwhich\s+(?:cities|places|countries|states|books|games|activities|items|things|ways|types|kinds)\b|"
+            r"\bwhat\s+(?:cities|places|countries|states|books|games|activities|items|things|ways|types|kinds)\b|"
+            r"\bwhat\s+does\s+.+?\s+(?:offer|provide|include)\b",
+            lower,
+        )
+    )
+
+
+def _list_answer(question: str, normalized: list[_ContextItem], max_chars: int) -> str | None:
+    question_words = _content_words(question)
+    entities = _question_entities(question)
+    scored: list[tuple[float, str]] = []
+    seen: set[str] = set()
+    for item in normalized:
+        for sentence in _split_sentences(item.text):
+            if len(sentence) < 8:
+                continue
+            overlap = _overlap_score(question_words, sentence, entities)
+            lower = sentence.lower()
+            relation_bonus = 0.0
+            if re.search(r"\b(?:visit|visited|went to|trip to|travel(?:ed|led)? to)\b", lower):
+                relation_bonus += 0.45
+            if re.search(r"\b(?:offer|offering|provide|provides|classes|workshops|training|services)\b", lower):
+                relation_bonus += 0.45
+            if overlap < 0.12 and relation_bonus == 0.0:
+                continue
+            key = re.sub(r"\s+", " ", sentence.strip()).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            scored.append((overlap + relation_bonus + min(item.score, 1.0) * 0.12, sentence.strip()))
+    if not scored:
+        return None
+    scored.sort(key=lambda x: x[0], reverse=True)
+    chosen: list[str] = []
+    used = 0
+    for _, sentence in scored[:6]:
+        if used + len(sentence) > max_chars and chosen:
+            continue
+        chosen.append(sentence)
+        used += len(sentence) + 2
+        if len(chosen) >= 3:
+            break
+    return _truncate(" ".join(chosen), max_chars) if chosen else None
+
+
 def _normalize_contexts(
     contexts: list[str] | list[dict[str, Any]],
 ) -> list[_ContextItem]:
     items: list[_ContextItem] = []
     for raw in contexts:
         if isinstance(raw, str):
+            session_date = _context_session_date(raw)
             text = _filter_context_text(raw)
             if text:
-                items.append(_ContextItem(text=text))
+                items.append(_ContextItem(text=text, session_date=session_date))
             continue
-        text = _filter_context_text(str(raw.get("text") or ""))
+        raw_text = str(raw.get("text") or "")
+        provenance = raw.get("provenance") if isinstance(raw.get("provenance"), dict) else {}
+        session_date = _context_session_date(raw_text, provenance)
+        text = _filter_context_text(raw_text)
         if not text:
             continue
         items.append(
             _ContextItem(
                 text=text,
                 memory_type=str(raw.get("memory_type") or "note"),
-                provenance=raw.get("provenance") if isinstance(raw.get("provenance"), dict) else {},
+                provenance=provenance,
                 score=float(raw.get("score") or 0.0),
+                session_date=session_date,
             )
         )
     return items
@@ -799,9 +875,17 @@ def synthesize_answer(
     occupation_question = _is_occupation_question(question)
     identity_question = _is_identity_question(question)
 
+    if _is_list_question(question):
+        list_answer = _list_answer(question, normalized, max_chars)
+        if list_answer:
+            return list_answer
+
     # For "when" questions, prefer contexts that actually contain date spans.
     if kind == "when":
-        dated_only = [item for item in normalized if _extract_date_spans(item.text)]
+        dated_only = [
+            item for item in normalized
+            if _extract_date_spans(item.text) or item.session_date
+        ]
         if dated_only:
             normalized = dated_only
 
@@ -897,6 +981,17 @@ def synthesize_answer(
                             date,
                         )
                     )
+            if item.session_date:
+                topical_sentences = [
+                    sentence for sentence in _split_sentences(item.text)
+                    if _overlap_score(question_words, sentence, entities) >= 0.22
+                ]
+                if topical_sentences:
+                    best_overlap = max(
+                        _overlap_score(question_words, sentence, entities)
+                        for sentence in topical_sentences
+                    )
+                    dated.append((meta + best_overlap + 0.55, item.session_date))
         if dated:
             dated.sort(key=lambda x: (x[0], len(x[1])), reverse=True)
             # If the top hit is relative-only, skip down to an absolute one.
