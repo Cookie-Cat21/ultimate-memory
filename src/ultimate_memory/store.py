@@ -410,6 +410,76 @@ class LocalStore:
                 break
         return atoms
 
+    def search_atoms_by_entities(
+        self,
+        entities: list[str],
+        *,
+        limit: int = 12,
+        memory_types: list[str] | None = None,
+        project_path: str | None = None,
+        include_superseded: bool = False,
+        as_of: str | None = None,
+    ) -> list[AtomicMemory]:
+        """Return atoms explicitly tagged with any requested entity.
+
+        This is a separate retrieval signal from FTS: exact entity metadata is
+        useful when lexical wording differs across sessions.
+        """
+        normalized = list(dict.fromkeys(
+            entity.strip().casefold() for entity in entities if entity and entity.strip()
+        ))
+        if not normalized:
+            return []
+
+        placeholders = ",".join("?" for _ in normalized)
+        clauses = [f"lower(cast(e.value as text)) in ({placeholders})"]
+        params: list[object] = list(normalized)
+
+        if as_of:
+            clauses.extend(["a.valid_from <= ?", "(a.valid_until is null or a.valid_until > ?)"])
+            params.extend([as_of, as_of])
+        elif not include_superseded:
+            clauses.extend(["a.valid_until is null", "a.superseded_by is null"])
+
+        if memory_types:
+            type_placeholders = ",".join("?" for _ in memory_types)
+            clauses.append(f"a.memory_type in ({type_placeholders})")
+            params.extend(memory_types)
+
+        if project_path:
+            clauses.append("(a.project_path = ? or a.project_path is null or a.project_path = '')")
+            params.append(project_path)
+
+        params.append(max(limit * 3, limit))
+        sql = f"""
+            select distinct a.*
+            from memory_atoms a, json_each(a.entities_json) e
+            where {' and '.join(clauses)}
+            order by a.salience desc, a.created_at desc
+            limit ?
+        """
+
+        with self._connect() as conn:
+            try:
+                rows = conn.execute(sql, params).fetchall()
+            except sqlite3.OperationalError:
+                # JSON1 is normally available in Python SQLite builds. Keep a
+                # deterministic fallback for restricted/minimal builds.
+                scan = self.list_active_atoms(
+                    memory_types=memory_types,
+                    project_path=project_path,
+                    limit=max(limit * 20, 200),
+                    as_of=as_of,
+                )
+                wanted = set(normalized)
+                return [
+                    atom
+                    for atom in scan
+                    if wanted.intersection(entity.casefold() for entity in atom.entities)
+                ][:limit]
+
+        return [self._row_to_atom(row) for row in rows[:limit]]
+
     def find_duplicate_atom(self, atom: AtomicMemory) -> AtomicMemory | None:
         with self._connect() as conn:
             row = conn.execute(
