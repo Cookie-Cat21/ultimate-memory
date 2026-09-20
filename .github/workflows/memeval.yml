@@ -27,28 +27,35 @@ jobs:
       LLM_MODEL: gpt-4.1-mini
       EMBEDDING_MODEL: text-embedding-3-small
     steps:
-      - name: Require API key
+      - name: Check API key
+        id: api_key
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
-            echo "::error::OPENAI_API_KEY Actions secret is not configured."
-            exit 1
+            echo "::notice::OPENAI_API_KEY Actions secret is not configured; independent MemEval is skipped."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout Ultimate Memory
+        if: steps.api_key.outputs.available == 'true'
         uses: actions/checkout@v4
         with:
           path: ultimate-memory
 
       - name: Checkout Prosus MemEval
+        if: steps.api_key.outputs.available == 'true'
         uses: actions/checkout@v4
         with:
           repository: ProsusAI/MemEval
           path: MemEval
 
       - name: Install uv
+        if: steps.api_key.outputs.available == 'true'
         uses: astral-sh/setup-uv@v3
 
       - name: Install MemEval and Ultimate Memory
+        if: steps.api_key.outputs.available == 'true'
         working-directory: MemEval
         run: |
           uv sync
@@ -57,6 +64,7 @@ jobs:
           cp ../ultimate-memory/integrations/memeval/ultimate_memory.py             src/agents_memory/systems/ultimate_memory.py
 
       - name: Run fair head-to-head
+        if: steps.api_key.outputs.available == 'true'
         working-directory: MemEval
         shell: bash
         run: |
@@ -76,7 +84,7 @@ jobs:
             --output-dir benchmark-output
 
       - name: Upload benchmark results
-        if: always()
+        if: always() && steps.api_key.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: independent-memeval-results
