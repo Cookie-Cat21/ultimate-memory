@@ -16,57 +16,107 @@ def _tokens(text: str) -> set[str]:
     }
 
 
+def _provenance_value(provenance: dict, key: str):
+    """Read a provenance field across direct, metadata, and vector payload forms."""
+    value = provenance.get(key)
+    if value not in (None, "", [], {}):
+        return value
+    metadata = provenance.get("metadata")
+    if isinstance(metadata, dict):
+        value = metadata.get(key)
+        if value not in (None, "", [], {}):
+            return value
+    payload = provenance.get("payload")
+    if isinstance(payload, dict):
+        value = payload.get(key)
+        if value not in (None, "", [], {}):
+            return value
+    return None
+
+
 def filter_entity_scoped_results(
     results: list[dict],
     entities: list[str],
     *,
     min_matches: int = 2,
 ) -> list[dict]:
-    """Prefer and balance evidence attached to entities named in the query.
+    """Prefer evidence *attributed to* entities named in the query.
 
-    For one entity this is a hard topical gate when enough evidence exists.
-    For multiple named entities, matched evidence is interleaved so one person's
-    larger memory history cannot crowd the other person out of the context packet.
+    Conversational memory frequently contains windows with two speakers. A name
+    appearing in the question half of a pair is weaker evidence than a direct
+    turn or the answer half of that pair. This gate therefore separates strong
+    attribution from mere mentions before balancing multiple named entities.
     """
     entity_keys = [entity.strip().casefold() for entity in entities if entity.strip()]
     if not entity_keys or not results:
         return list(results)
 
-    # In conversational memory, explicit speaker names are stronger entity
-    # anchors than other capitalized concepts in the question (e.g. LGBTQ,
-    # PostgreSQL, New York). If at least one query entity is a known speaker,
-    # scope to those speaker entities; otherwise preserve generic entity scope.
-    known_speakers = {
-        str((item.get("provenance") or {}).get("speaker") or "").strip().casefold()
-        for item in results
-        if str((item.get("provenance") or {}).get("speaker") or "").strip()
-    }
+    known_speakers: set[str] = set()
+    for item in results:
+        provenance = item.get("provenance") or {}
+        for key in ("speaker", "answer_speaker"):
+            speaker = str(_provenance_value(provenance, key) or "").strip().casefold()
+            if speaker:
+                known_speakers.add(speaker)
+
     speaker_keys = [key for key in entity_keys if key in known_speakers]
     scope_keys = speaker_keys or entity_keys
 
-    matched: list[dict] = []
-    buckets: dict[str, list[dict]] = {key: [] for key in scope_keys}
+    strong: list[dict] = []
+    weak: list[dict] = []
+    strong_buckets: dict[str, list[dict]] = {key: [] for key in scope_keys}
+    weak_buckets: dict[str, list[dict]] = {key: [] for key in scope_keys}
 
     for item in results:
         text = str(item.get("text") or "").casefold()
         provenance = item.get("provenance") or {}
         prov_entities = {
             str(entity).strip().casefold()
-            for entity in provenance.get("entities") or []
+            for entity in (_provenance_value(provenance, "entities") or [])
             if str(entity).strip()
         }
-        speaker = str(provenance.get("speaker") or "").strip().casefold()
+        speaker = str(_provenance_value(provenance, "speaker") or "").strip().casefold()
+        answer_speaker = str(
+            _provenance_value(provenance, "answer_speaker") or ""
+        ).strip().casefold()
+        question_speaker = str(
+            _provenance_value(provenance, "question_speaker") or ""
+        ).strip().casefold()
 
-        item_entities = [
-            key
+        strong_entities: list[str] = []
+        weak_entities: list[str] = []
+        for key in scope_keys:
+            if key == speaker or key == answer_speaker or key in prov_entities:
+                strong_entities.append(key)
+            elif key in text or key == question_speaker:
+                weak_entities.append(key)
+
+        if strong_entities:
+            strong.append(item)
+            for key in strong_entities:
+                strong_buckets[key].append(item)
+        elif weak_entities:
+            weak.append(item)
+            for key in weak_entities:
+                weak_buckets[key].append(item)
+
+    # Strongly attributed evidence is preferred whenever it is sufficiently
+    # populated. Fall back to textual/question-side mentions only when necessary.
+    if len(strong) >= min_matches:
+        matched = strong
+        buckets = strong_buckets
+    else:
+        matched = list(strong)
+        seen = {str(item.get("id") or item.get("source_path") or id(item)) for item in matched}
+        for item in weak:
+            item_key = str(item.get("id") or item.get("source_path") or id(item))
+            if item_key not in seen:
+                matched.append(item)
+                seen.add(item_key)
+        buckets = {
+            key: [*strong_buckets[key], *weak_buckets[key]]
             for key in scope_keys
-            if key in text or key == speaker or key in prov_entities
-        ]
-        if not item_entities:
-            continue
-        matched.append(item)
-        for key in item_entities:
-            buckets[key].append(item)
+        }
 
     if len(matched) < min_matches:
         return list(results)
@@ -74,8 +124,8 @@ def filter_entity_scoped_results(
     if len(scope_keys) == 1 or not all(buckets[key] for key in scope_keys):
         return matched
 
-    # Round-robin the per-entity rankings, then append any remaining matched
-    # evidence in its original order. Items mentioning both entities are deduped.
+    # Round-robin per-entity evidence so one person's larger history cannot
+    # crowd another named person out of the context packet.
     balanced: list[dict] = []
     seen: set[str] = set()
     max_len = max(len(bucket) for bucket in buckets.values())
