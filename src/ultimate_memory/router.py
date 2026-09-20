@@ -998,9 +998,11 @@ class MemoryRouter:
         stamp = event_time or now_iso()
         chunks: list[MemoryChunk] = []
         atoms: list[AtomicMemory] = []
+        resolved_turns: list[tuple[object, str]] = []
 
         for turn in turns:
             resolved = resolve_relative_dates(turn.utterance, anchor)
+            resolved_turns.append((turn, resolved))
             line_text = f"[{turn.dia_id}] {turn.speaker}: {resolved}"
             informative = len(resolved.strip()) >= 20
             chunks.append(
@@ -1039,6 +1041,55 @@ class MemoryRouter:
                         },
                     )
                 )
+
+        # Index adjacent conversational pairs so question/request terms and
+        # their response live in the same searchable evidence unit. This improves
+        # discourse-aware recall without inventing or summarizing any facts.
+        for index in range(len(resolved_turns) - 1):
+            first, first_text = resolved_turns[index]
+            second, second_text = resolved_turns[index + 1]
+            first_dia = getattr(first, "dia_id", "")
+            second_dia = getattr(second, "dia_id", "")
+            first_speaker = getattr(first, "speaker", "")
+            second_speaker = getattr(second, "speaker", "")
+            is_query_like = (
+                "?" in first_text
+                or bool(
+                    re.search(
+                        r"^(?:can|could|would|will|please|tell|show|explain|describe|"
+                        r"what|when|where|who|why|how)\b",
+                        first_text.strip(),
+                        re.I,
+                    )
+                )
+            )
+            if not is_query_like:
+                continue
+            pair_text = (
+                f"[{first_dia}] {first_speaker}: {first_text}\n"
+                f"[{second_dia}] {second_speaker}: {second_text}"
+            )
+            chunks.append(
+                MemoryChunk(
+                    id=f"pair:{safe_session}:{first_dia}:{second_dia}",
+                    text=pair_text,
+                    source_path=str(log_path),
+                    title=f"{first_speaker} → {second_speaker} [{first_dia}/{second_dia}]",
+                    memory_type=MemoryType.FACT,
+                    project_path=project_path,
+                    tags=[*tags, "conversation-pair"],
+                    metadata={
+                        "client": client,
+                        "session_id": session_id,
+                        "pair": True,
+                        "question_dia_id": first_dia,
+                        "answer_dia_id": second_dia,
+                        "question_speaker": first_speaker,
+                        "answer_speaker": second_speaker,
+                        "event_time": event_time,
+                    },
+                )
+            )
 
         return chunks, atoms
 
