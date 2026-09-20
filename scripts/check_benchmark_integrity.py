@@ -36,6 +36,19 @@ def main() -> None:
     for needle in require_absent(router, forbidden_router):
         failures.append(f"{router}: gold-category routing marker {needle!r}")
 
+    reader = ROOT / "src" / "ultimate_memory" / "reader.py"
+    forbidden_reader = [
+        "LoCoMo",
+        "event_summary",
+        "_MEDIA_TITLE_HINTS",
+        "Joanna",
+        "Jon & Gina",
+        "UNO",
+        "Mafia",
+    ]
+    for needle in require_absent(reader, forbidden_reader):
+        failures.append(f"{reader}: benchmark-specific marker {needle!r}")
+
     planner = ROOT / "src" / "ultimate_memory" / "planner.py"
     forbidden_planner = ["LoCoMo", "Joanna", "Jon & Gina", "UNO", "Mafia", "Charlotte's Web"]
     for needle in require_absent(planner, forbidden_planner):
