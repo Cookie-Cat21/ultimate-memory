@@ -168,6 +168,18 @@ def _expansions(question: str) -> list[str]:
         expansions.append("visited travel trip city place")
     if re.search(r"\boffer|offers|offering|provide|provides|services\b", lower):
         expansions.append("offer provides services classes workshops training")
+    if re.search(r"\brelationship|dating|married|single|partner\b", lower):
+        expansions.append("relationship status dating married single partner")
+    if re.search(r"\bidentity|gender|transgender|nonbinary|non-binary\b", lower):
+        expansions.append("identity gender transgender nonbinary")
+    if re.search(r"\bcareer|profession|education|educaton|field|study|degree\b", lower):
+        expansions.append("career education study degree certification profession")
+    if re.search(r"\bactivities?|hobbies?|destress|de-stress|relax|leisure\b", lower):
+        expansions.append("activity hobby recreation leisure destress relax")
+    if re.search(r"\bevents?|participat|community|involvement|attend|joined?\b", lower):
+        expansions.append("event attended participated joined involvement community")
+    if re.search(r"\bpaint|painting|artwork|art\b", lower):
+        expansions.append("painting artwork canvas subject landscape")
     if _is_temporal_question(question):
         expansions.append("date year month day when duration time")
     if re.search(r"\bhow\s+long\b|\bduration\b|\belapsed\b", lower):
