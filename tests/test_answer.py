@@ -440,3 +440,16 @@ def test_shared_city_cleanup_keeps_city_not_time_modifier():
     ]
     answer = synthesize_answer("Which city have both Jean and John visited?", contexts)
     assert answer.lower() == "rome"
+
+
+def test_structured_reasoner_keeps_relevant_sentence_in_moderate_log():
+    filler = "Unrelated small talk. " * 45
+    contexts = [
+        {
+            "text": filler + " Caroline: I've known this group of friends for 4 years.",
+            "memory_type": "log",
+            "score": 0.7,
+        }
+    ]
+    answer = synthesize_answer("How long has Caroline had this group of friends?", contexts)
+    assert answer.lower() == "4 years"
