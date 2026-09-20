@@ -63,6 +63,9 @@ _LIST_OR_SET_RE = re.compile(
     r"\bwhat\s+does\s+.+?\s+(?:offer|provide|include|do\s+to)\b|"
     r"\b(?:all|multiple|several)\s+(?:[a-z]+s|cities|places|books|activities|items|things|ways|types)\b|"
     r"\bwhere\s+has\s+.+?\s+(?:camped|traveled|travelled|visited|stayed|lived)\b|"
+    r"\bin\s+what\s+ways\b|"
+    r"\bhow\s+(?:does|is|has)\s+.+?\s+(?:participat|involv|contribut)\w*\b|"
+    r"\bwhat\s+do\s+.+?'s\s+[a-z]+s\s+(?:like|enjoy|prefer|do)\b|"
     r"\bwhat\s+.+?\s+has\s+.+?\s+(?:done|read|visited|attended|participated|painted|tried|used)\b",
     re.I,
 )
