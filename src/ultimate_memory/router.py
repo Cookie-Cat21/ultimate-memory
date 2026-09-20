@@ -52,6 +52,7 @@ from .llm_answer import use_llm_from_env
 from .planner import plan_query
 from .ranking import rerank_candidates
 from .store import LocalStore
+from .temporal_context import temporal_contexts
 
 logger = logging.getLogger(__name__)
 
@@ -277,15 +278,25 @@ class MemoryRouter:
             rich_contexts.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
         rich_contexts = rich_contexts[: max(limit * 3, 18)]
 
+        answer_contexts = (
+            temporal_contexts(rich_contexts)
+            if plan.kind == "temporal"
+            else rich_contexts
+        )
+
         use_local_llm = use_llm_from_env() if use_llm is None else use_llm
-        context_texts = [str(item.get("text") or "") for item in rich_contexts if item.get("text")]
+        context_texts = [
+            str(item.get("text") or "")
+            for item in answer_contexts
+            if item.get("text")
+        ]
 
         reader_used = False
-        if use_reader and rich_contexts:
+        if use_reader and answer_contexts:
             try:
                 from .reader import get_extractive_reader
 
-                answer_text = get_extractive_reader().answer(question, rich_contexts)
+                answer_text = get_extractive_reader().answer(question, answer_contexts)
                 reader_used = bool(answer_text)
             except Exception as exc:
                 logger.warning("Extractive reader failed, falling back: %s", exc)
@@ -300,9 +311,9 @@ class MemoryRouter:
                 answer_text = get_local_answerer().answer(question, context_texts[:18])
             except Exception as exc:
                 logger.warning("Local LLM answer failed, falling back to extractive: %s", exc)
-                answer_text = synthesize_answer(question, rich_contexts)
+                answer_text = synthesize_answer(question, answer_contexts)
         elif not answer_text:
-            answer_text = synthesize_answer(question, rich_contexts)
+            answer_text = synthesize_answer(question, answer_contexts)
 
         return {
             "question": question,
