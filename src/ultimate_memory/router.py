@@ -151,6 +151,7 @@ class MemoryRouter:
         *,
         max_hop_searches: int = MAX_HOP_SEARCHES,
         use_llm: bool | None = None,
+        use_reader: bool = False,
         category: str | None = None,
     ) -> dict:
         """Plan, retrieve, and answer without benchmark-provided routing labels.
@@ -279,7 +280,20 @@ class MemoryRouter:
         use_local_llm = use_llm_from_env() if use_llm is None else use_llm
         context_texts = [str(item.get("text") or "") for item in rich_contexts if item.get("text")]
 
-        if use_local_llm and context_texts:
+        reader_used = False
+        if use_reader and rich_contexts:
+            try:
+                from .reader import get_extractive_reader
+
+                answer_text = get_extractive_reader().answer(question, rich_contexts)
+                reader_used = bool(answer_text)
+            except Exception as exc:
+                logger.warning("Extractive reader failed, falling back: %s", exc)
+                answer_text = ""
+        else:
+            answer_text = ""
+
+        if not answer_text and use_local_llm and context_texts:
             try:
                 from .llm_answer import get_local_answerer
 
@@ -287,7 +301,7 @@ class MemoryRouter:
             except Exception as exc:
                 logger.warning("Local LLM answer failed, falling back to extractive: %s", exc)
                 answer_text = synthesize_answer(question, rich_contexts)
-        else:
+        elif not answer_text:
             answer_text = synthesize_answer(question, rich_contexts)
 
         return {
@@ -300,6 +314,7 @@ class MemoryRouter:
             "hop_entities": list(dict.fromkeys(hop_entities)),
             "hop_searches": hop_searches,
             "aggregated": None,
+            "reader_used": reader_used,
         }
 
     def search(
