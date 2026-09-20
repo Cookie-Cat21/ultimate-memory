@@ -339,6 +339,52 @@ def build_hop_queries(
     return queries[:max_queries]
 
 
+_TARGET_STOP = frozenset({
+    "what", "where", "when", "who", "whom", "which", "how", "why",
+    "does", "did", "do", "is", "are", "was", "were", "has", "have", "had",
+    "can", "could", "would", "should", "will", "the", "a", "an", "to",
+    "of", "in", "on", "for", "with", "from", "at", "about", "their",
+    "his", "her", "its", "this", "that", "these", "those",
+    "sister", "brother", "mother", "father", "parent", "child", "children",
+    "friend", "mentor", "manager", "boss", "employer", "company", "team",
+})
+
+
+def question_target_terms(question: str, entities: list[str] | None = None) -> list[str]:
+    """Return relation/answer-bearing terms used to decide whether a hop is complete."""
+    entity_tokens = {
+        token
+        for entity in (entities or [])
+        for token in re.findall(r"[a-z0-9]+", entity.casefold())
+    }
+    terms: list[str] = []
+    seen: set[str] = set()
+    for token in re.findall(r"[a-z][a-z0-9_-]{2,}", question.casefold()):
+        if token in _TARGET_STOP or token in entity_tokens or token in seen:
+            continue
+        seen.add(token)
+        terms.append(token)
+    return terms[:10]
+
+
+def evidence_target_hits(
+    question: str,
+    results: list[dict],
+    *,
+    entities: list[str] | None = None,
+) -> int:
+    """Count target terms present in retrieved evidence.
+
+    This is deliberately lexical and benchmark-agnostic. It is used only as a
+    conservative stopping signal for adaptive bridge traversal.
+    """
+    terms = question_target_terms(question, entities)
+    if not terms:
+        return 0
+    text = "\n".join(str(item.get("text") or "") for item in results).casefold()
+    return sum(1 for term in terms if term in text)
+
+
 def merge_contexts(
     initial: list[str] | list[dict],
     *extra_lists: list[str] | list[dict],
