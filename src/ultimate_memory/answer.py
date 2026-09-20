@@ -512,11 +512,99 @@ def _is_list_question(question: str) -> bool:
     )
 
 
+def _compact_list_values(question: str, sentence: str) -> list[str]:
+    """Extract compact candidate values from a relevant sentence.
+
+    This is deliberately schema/generic: it recognizes relation shapes rather
+    than benchmark entities or known answers.
+    """
+    lower_q = question.lower()
+    values: list[str] = []
+
+    # Quoted works/titles are high-precision list values.
+    if re.search(r"\bbooks?|titles?|movies?|films?|songs?|works?\b", lower_q):
+        values.extend(
+            match.group(1).strip()
+            for match in re.finditer(r'["“]([^"”]{2,90})["”]', sentence)
+        )
+
+    # Travel / location histories.
+    if re.search(r"\b(?:cities|places|states|countries|where)\b", lower_q):
+        for pattern in (
+            re.compile(
+                r"\b(?:visited|went|traveled|travelled|vacationed|camped|stayed|lived)"
+                r"\s+(?:in|at|to)?\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})",
+                re.I,
+            ),
+            re.compile(
+                r"\b(?:trip|vacation|camping)\s+(?:in|at|to)\s+"
+                r"([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})",
+                re.I,
+            ),
+        ):
+            values.extend(match.group(1).strip() for match in pattern.finditer(sentence))
+
+    # Product/service/class offerings: capture coordinated objects after the verb.
+    if re.search(r"\b(?:offer|provide|include|services?|classes?|training|workshops?)\b", lower_q):
+        for match in re.finditer(
+            r"\b(?:offers?|provides?|includes?|has)\s+([^.!?]{3,140})",
+            sentence,
+            re.I,
+        ):
+            phrase = match.group(1)
+            phrase = re.split(r"\b(?:because|so that|which|where|when)\b", phrase, maxsplit=1, flags=re.I)[0]
+            values.extend(
+                part.strip(" ,.;:-")
+                for part in re.split(r",|\band\b|\bor\b", phrase, flags=re.I)
+                if 2 <= len(part.strip()) <= 80
+            )
+
+    # Generic "I do/read/paint/attend X and Y" histories. Use only when the
+    # question itself asks for a plural/set answer.
+    if re.search(r"\b(?:what|which)\s+[a-z]+s\b|\bwhat\s+.+?\s+has\b", lower_q):
+        for match in re.finditer(
+            r"\b(?:do|does|did|done|read|reads|painted|paints|attended|attends|"
+            r"participated\s+in|practiced|practises|practices|tried|uses?|enjoys?|likes?)\s+"
+            r"([^.!?]{2,120})",
+            sentence,
+            re.I,
+        ):
+            phrase = re.split(
+                r"\b(?:because|since|when|while|which|that|to\s+help|to\s+make)\b",
+                match.group(1),
+                maxsplit=1,
+                flags=re.I,
+            )[0]
+            values.extend(
+                part.strip(" ,.;:-")
+                for part in re.split(r",|\band\b|\bor\b", phrase, flags=re.I)
+                if 2 <= len(part.strip()) <= 70
+            )
+
+    # De-duplicate and discard obvious dialogue scaffolding.
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        value = re.sub(r"^(?:a|an|the)\s+", "", value.strip(), flags=re.I)
+        value = re.sub(r"^(?:my|our|his|her|their)\s+", "", value, flags=re.I)
+        if not value or _GREETING_ONLY_RE.match(value):
+            continue
+        if value.lower() in {"it", "them", "this", "that", "things", "stuff"}:
+            continue
+        key = value.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(value)
+    return cleaned
+
+
 def _list_answer(question: str, normalized: list[_ContextItem], max_chars: int) -> str | None:
     question_words = _content_words(question)
     entities = _question_entities(question)
-    scored: list[tuple[float, str]] = []
-    seen: set[str] = set()
+    scored_sentences: list[tuple[float, str]] = []
+    seen_sentences: set[str] = set()
+
     for item in normalized:
         for sentence in _split_sentences(item.text):
             if len(sentence) < 8:
@@ -524,28 +612,61 @@ def _list_answer(question: str, normalized: list[_ContextItem], max_chars: int) 
             overlap = _overlap_score(question_words, sentence, entities)
             lower = sentence.lower()
             relation_bonus = 0.0
-            if re.search(r"\b(?:visit|visited|went to|trip to|travel(?:ed|led)? to)\b", lower):
+            if re.search(
+                r"\b(?:visit|visited|went to|trip to|travel(?:ed|led)? to|"
+                r"read|painted|attended|participated|camped|vacationed)\b",
+                lower,
+            ):
                 relation_bonus += 0.45
-            if re.search(r"\b(?:offer|offering|provide|provides|classes|workshops|training|services)\b", lower):
+            if re.search(
+                r"\b(?:offer|offering|provide|provides|classes|workshops|training|services)\b",
+                lower,
+            ):
                 relation_bonus += 0.45
             if overlap < 0.12 and relation_bonus == 0.0:
                 continue
             key = re.sub(r"\s+", " ", sentence.strip()).lower()
-            if key in seen:
+            if key in seen_sentences:
                 continue
-            seen.add(key)
-            scored.append((overlap + relation_bonus + min(item.score, 1.0) * 0.12, sentence.strip()))
-    if not scored:
+            seen_sentences.add(key)
+            scored_sentences.append(
+                (
+                    overlap + relation_bonus + min(item.score, 1.0) * 0.12,
+                    sentence.strip(),
+                )
+            )
+
+    if not scored_sentences:
         return None
-    scored.sort(key=lambda x: x[0], reverse=True)
+    scored_sentences.sort(key=lambda item: item[0], reverse=True)
+
+    values: list[str] = []
+    seen_values: set[str] = set()
+    for _, sentence in scored_sentences[:10]:
+        for value in _compact_list_values(question, sentence):
+            key = value.casefold()
+            if key in seen_values:
+                continue
+            seen_values.add(key)
+            values.append(value)
+            if len(values) >= 8:
+                break
+        if len(values) >= 8:
+            break
+
+    if values:
+        compact = ", ".join(values)
+        return _truncate(compact, max_chars)
+
+    # Last-resort evidence aggregation when no structured values were extractable.
     chosen: list[str] = []
     used = 0
-    for _, sentence in scored[:6]:
+    for _, sentence in scored_sentences[:6]:
         if used + len(sentence) > max_chars and chosen:
             continue
         chosen.append(sentence)
         used += len(sentence) + 2
-        if len(chosen) >= 3:
+        if len(chosen) >= 2:
             break
     return _truncate(" ".join(chosen), max_chars) if chosen else None
 
