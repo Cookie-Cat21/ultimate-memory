@@ -29,6 +29,44 @@ _QUESTION_WORDS = {
     "What", "Where", "When", "Who", "Whom", "Which", "How", "Why", "Does",
     "Did", "Do", "Is", "Are", "Was", "Were", "Can", "Could", "Would", "Should",
 }
+
+_TEMPORAL_QUESTION_RE = re.compile(
+    r"\bwhen\b|"
+    r"\bwhat\s+(?:date|year|month|day)\b|"
+    r"\bhow\s+long\b|"
+    r"\bhow\s+many\s+(?:years?|months?|weeks?|days?|hours?)\b|"
+    r"\b(?:years?|months?|weeks?|days?|hours?)\s+ago\b|"
+    r"\b(?:since|until|during)\b|"
+    r"\b(?:before|after|earlier|later|previously|formerly|prior)\b"
+)
+
+_COLLECTIVE_RE = re.compile(
+    r"\bboth\b|"
+    r"\bin\s+common\b|"
+    r"\bshared\b|"
+    r"\beach\b|"
+    r"\brespectively\b|"
+    r"\btogether\b|"
+    r"\bcompare\b|"
+    r"\bsimilarit(?:y|ies)\b|"
+    r"\bdifferences?\b|"
+    r"\bbetween\b.+\band\b",
+    re.I,
+)
+
+
+def _is_temporal_question(question: str) -> bool:
+    return bool(_TEMPORAL_QUESTION_RE.search(question.lower()))
+
+
+def _is_collective_multi_hop(question: str, entities: list[str]) -> bool:
+    lower = question.lower()
+    if _COLLECTIVE_RE.search(lower):
+        return True
+    if len(entities) >= 2 and re.search(r"\b(?:and|versus|vs\.?|compared?\s+to)\b", lower):
+        return True
+    return False
+
 _RELATION_WORDS = {
     "sister", "brother", "mother", "father", "parent", "child", "children",
     "friend", "mentor", "manager", "boss", "employer", "company", "team",
@@ -47,12 +85,15 @@ def _entities(question: str) -> list[str]:
     return found[:8]
 
 
-def _hop_depth(question: str) -> int:
+def _hop_depth(question: str, entities: list[str] | None = None) -> int:
     lower = question.lower()
+    entities = entities or _entities(question)
     possessives = len(re.findall(r"\b[\w.-]+'s\b", question))
     relation_hits = sum(1 for word in _RELATION_WORDS if re.search(rf"\b{re.escape(word)}\b", lower))
     chained_of = len(re.findall(r"\bof\s+(?:the\s+)?(?:\w+\s+){0,2}(?:of|for|at)\b", lower))
     score = possessives + max(0, relation_hits - 1) + chained_of
+    if _is_collective_multi_hop(question, entities):
+        score = max(score, 2)
     if score >= 3:
         return 3
     if score >= 2:
@@ -90,6 +131,8 @@ def _expansions(question: str) -> list[str]:
         expansions.append("procedure steps process")
     if re.search(r"\bbefore|previous|formerly|used to|prior\b", lower):
         expansions.append("previous formerly before historical")
+    if _is_temporal_question(question):
+        expansions.append("date year month day when duration time")
     return list(dict.fromkeys(expansions))
 
 
@@ -115,11 +158,13 @@ def plan_query(question: str, *, as_of: str | None = None) -> QueryPlan:
         temporal_mode = "unspecified"
         include_superseded = False
 
-    depth = _hop_depth(question)
+    entities = _entities(question)
+    depth = _hop_depth(question, entities)
+    temporal_question = _is_temporal_question(question)
     if depth > 1:
         kind = "multi_hop"
         signals.append(f"relation_chain_depth_{depth}")
-    elif temporal_mode in {"historical", "as_of"}:
+    elif temporal_mode in {"historical", "as_of"} or temporal_question:
         kind = "temporal"
     else:
         kind = "single_hop"
@@ -129,7 +174,7 @@ def plan_query(question: str, *, as_of: str | None = None) -> QueryPlan:
         temporal_mode=temporal_mode,
         hop_depth=depth,
         include_superseded=include_superseded,
-        entities=_entities(question),
+        entities=entities,
         memory_types=_memory_types(question),
         expansions=_expansions(question),
         signals=signals,
