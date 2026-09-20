@@ -177,6 +177,7 @@ class VectorAdapter:
         tags: list[str] | None = None,
         memory_types: list[str] | None = None,
         include_superseded: bool = False,
+        project_path: str | None = None,
     ) -> list[SearchResult]:
         if not query.strip() or not self.ensure_collection():
             return []
@@ -200,13 +201,16 @@ class VectorAdapter:
         response = self.client().query_points(
             collection_name=self.retrieval.collection_name,
             query=vector,
-            limit=limit,
+            limit=max(limit * 3, limit) if project_path else limit,
             with_payload=True,
             query_filter=query_filter,
         )
         results: list[SearchResult] = []
         for point in response.points:
             payload = point.payload or {}
+            stored_project = payload.get("project_path")
+            if project_path and stored_project not in (None, "", project_path):
+                continue
             if (
                 not include_superseded
                 and payload.get("kind") == "atom"
@@ -216,4 +220,6 @@ class VectorAdapter:
             results.append(
                 self._search_result_from_payload(payload, score=float(point.score))
             )
+            if len(results) >= limit:
+                break
         return results
