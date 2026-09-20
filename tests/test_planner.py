@@ -56,3 +56,9 @@ def test_plural_set_query_uses_multi_hop_plan():
 def test_offer_query_uses_multi_evidence_plan():
     plan = plan_query("What does Jon's dance studio offer?")
     assert plan.kind == "multi_hop"
+
+
+def test_generic_plural_history_query_uses_distributed_plan():
+    assert plan_query("What martial arts has Alex done?").kind == "multi_hop"
+    assert plan_query("What books has Alex read?").kind == "multi_hop"
+    assert plan_query("Where has Alex camped?").kind == "multi_hop"
