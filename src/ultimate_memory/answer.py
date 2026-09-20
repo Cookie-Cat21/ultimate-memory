@@ -600,7 +600,7 @@ def _compact_list_values(question: str, sentence: str) -> list[str]:
         )
 
     # Travel / location histories.
-    if re.search(r"\b(?:cities|places|states|countries|where)\b", lower_q):
+    if re.search(r"\b(?:city|cities|place|places|state|states|country|countries|where)\b", lower_q):
         for pattern in (
             re.compile(
                 r"\b(?:visited|went|traveled|travelled|vacationed|camped|stayed|lived)"
@@ -747,6 +747,8 @@ def _shared_entity_answer(
         "have", "with", "from", "that", "this", "they", "their", "your", "just",
         "really", "about", "been", "want", "like", "love", "great", "good", "also",
         "make", "help", "thing", "time", "need", "when", "what", "both",
+        "last", "next", "this", "year", "month", "week", "spring", "summer",
+        "autumn", "fall", "winter", "ago", "recent", "recently",
     }
     ranked = [
         token
