@@ -100,23 +100,24 @@ def filter_entity_scoped_results(
             for key in weak_entities:
                 weak_buckets[key].append(item)
 
-    # Strongly attributed evidence is preferred whenever it is sufficiently
-    # populated. Fall back to textual/question-side mentions only when necessary.
-    if len(strong) >= min_matches:
-        matched = strong
-        buckets = strong_buckets
-    else:
-        matched = list(strong)
-        seen = {str(item.get("id") or item.get("source_path") or id(item)) for item in matched}
-        for item in weak:
-            item_key = str(item.get("id") or item.get("source_path") or id(item))
-            if item_key not in seen:
-                matched.append(item)
-                seen.add(item_key)
-        buckets = {
-            key: [*strong_buckets[key], *weak_buckets[key]]
-            for key in scope_keys
-        }
+    # Strongly attributed evidence is ordered first, but weaker mention /
+    # question-side evidence is retained as recall support. Hard-dropping it can
+    # lose conversational premises whose answer lives in an adjacent turn.
+    matched = list(strong)
+    seen = {
+        str(item.get("id") or item.get("source_path") or id(item))
+        for item in matched
+    }
+    for item in weak:
+        item_key = str(item.get("id") or item.get("source_path") or id(item))
+        if item_key not in seen:
+            matched.append(item)
+            seen.add(item_key)
+
+    buckets = {
+        key: [*strong_buckets[key], *weak_buckets[key]]
+        for key in scope_keys
+    }
 
     if len(matched) < min_matches:
         return list(results)
