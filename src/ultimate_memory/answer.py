@@ -587,6 +587,21 @@ def _is_list_question(question: str) -> bool:
     )
 
 
+def _clean_place_value(value: str) -> str:
+    value = value.strip(" ,.;:-")
+    value = re.sub(r"^(?:the)\s+", "", value, flags=re.I)
+    value = re.sub(
+        r"\s+(?:last|next|this)\s+"
+        r"(?:spring|summer|autumn|fall|winter|year|month|week|weekend|"
+        r"monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b.*$",
+        "",
+        value,
+        flags=re.I,
+    )
+    value = re.sub(r"\s+(?:a\s+few|several|\d+)\s+(?:days?|weeks?|months?|years?)\s+ago\b.*$", "", value, flags=re.I)
+    return value.strip(" ,.;:-")
+
+
 def _compact_list_values(question: str, sentence: str) -> list[str]:
     """Extract compact candidate values from a relevant sentence.
 
@@ -608,14 +623,21 @@ def _compact_list_values(question: str, sentence: str) -> list[str]:
         for pattern in (
             re.compile(
                 r"\b(?:visited|went|traveled|travelled|vacationed|camped|stayed|lived)"
-                r"\s+(?:in|at|to)?\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})"
+                r"\s+(?:in|at|to|near|on)?\s*(?:the\s+)?"
+                r"([a-z][a-z-]+(?:\s+[a-z][a-z-]+){0,2})",
+                re.I,
             ),
             re.compile(
-                r"\b(?:trip|vacation|camping)\s+(?:in|at|to)\s+"
-                r"([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})"
+                r"\b(?:trip|vacation|camping)\s+(?:in|at|to|near|on)\s+"
+                r"(?:the\s+)?([a-z][a-z-]+(?:\s+[a-z][a-z-]+){0,2})",
+                re.I,
             ),
         ):
-            values.extend(match.group(1).strip() for match in pattern.finditer(sentence))
+            values.extend(
+                place
+                for match in pattern.finditer(sentence)
+                if (place := _clean_place_value(match.group(1)))
+            )
 
     # Product/service/class offerings: capture coordinated objects after the verb.
     if re.search(r"\b(?:offer|provide|include|services?|classes?|training|workshops?)\b", lower_q):
