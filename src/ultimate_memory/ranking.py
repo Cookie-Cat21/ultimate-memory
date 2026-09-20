@@ -32,8 +32,20 @@ def filter_entity_scoped_results(
     if not entity_keys or not results:
         return list(results)
 
+    # In conversational memory, explicit speaker names are stronger entity
+    # anchors than other capitalized concepts in the question (e.g. LGBTQ,
+    # PostgreSQL, New York). If at least one query entity is a known speaker,
+    # scope to those speaker entities; otherwise preserve generic entity scope.
+    known_speakers = {
+        str((item.get("provenance") or {}).get("speaker") or "").strip().casefold()
+        for item in results
+        if str((item.get("provenance") or {}).get("speaker") or "").strip()
+    }
+    speaker_keys = [key for key in entity_keys if key in known_speakers]
+    scope_keys = speaker_keys or entity_keys
+
     matched: list[dict] = []
-    buckets: dict[str, list[dict]] = {key: [] for key in entity_keys}
+    buckets: dict[str, list[dict]] = {key: [] for key in scope_keys}
 
     for item in results:
         text = str(item.get("text") or "").casefold()
@@ -47,7 +59,7 @@ def filter_entity_scoped_results(
 
         item_entities = [
             key
-            for key in entity_keys
+            for key in scope_keys
             if key in text or key == speaker or key in prov_entities
         ]
         if not item_entities:
@@ -59,7 +71,7 @@ def filter_entity_scoped_results(
     if len(matched) < min_matches:
         return list(results)
 
-    if len(entity_keys) == 1 or not all(buckets[key] for key in entity_keys):
+    if len(scope_keys) == 1 or not all(buckets[key] for key in scope_keys):
         return matched
 
     # Round-robin the per-entity rankings, then append any remaining matched
@@ -68,7 +80,7 @@ def filter_entity_scoped_results(
     seen: set[str] = set()
     max_len = max(len(bucket) for bucket in buckets.values())
     for index in range(max_len):
-        for key in entity_keys:
+        for key in scope_keys:
             bucket = buckets[key]
             if index >= len(bucket):
                 continue
