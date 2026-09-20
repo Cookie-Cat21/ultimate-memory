@@ -55,13 +55,15 @@ Rules:
 2. Each memory must be atomic: one durable fact, preference, decision, procedure, event,
    relationship, status, ownership fact, activity, or plan.
 3. Name the subject explicitly. Replace first-person pronouns with the speaker name.
-4. Preserve exact names, places, titles, dates, quantities, and temporal qualifiers.
-5. Keep separate facts separate; do not merge unrelated information.
-6. Include the dialogue IDs that directly support each memory.
-7. entities must contain the people/organizations/places directly involved.
-8. memory_type must be one of: fact, preference, decision, procedure.
-9. Do not extract greetings, compliments, filler, or questions that contain no answer.
-10. Confidence is 0-1 and should reflect how explicitly the memory is stated.
+4. Preserve exact names, places, titles, dates, quantities, and technical values verbatim.
+5. Convert relative dates to absolute dates using the session date whenever possible. For example, resolve yesterday, last week, this month, three months ago, and next Tuesday into an explicit calendar date or month/year.
+6. Keep separate facts separate; do not merge unrelated information.
+7. Include the dialogue IDs that directly support each memory.
+8. entities must contain the people/organizations/places directly involved.
+9. memory_type must be one of: fact, preference, decision, procedure.
+10. Extract EVERY durable fact, even minor ones; do not stop after the most salient facts.
+11. Do not extract greetings, compliments, filler, or questions that contain no answer.
+12. Confidence is 0-1 and should reflect how explicitly the memory is stated.
 
 Return JSON:
 {{"memories": [
@@ -96,7 +98,7 @@ Rules:
 8. Answer in the same language as the question.
 
 Return JSON exactly as:
-{{"answer": "direct compact answer"}}
+{{"reasoning": "brief evidence-grounded reasoning", "answer": "direct compact answer"}}
 """
 
 
@@ -174,7 +176,7 @@ def _compile_session(
         ],
         response_format={"type": "json_object"},
         temperature=0,
-        max_tokens=4096,
+        max_tokens=8192,
     )
     content = response.choices[0].message.content or "{}"
     try:
@@ -186,7 +188,7 @@ def _compile_session(
         return []
 
     compiled: list[CompiledMemory] = []
-    for raw in raw_memories[:60]:
+    for raw in raw_memories[:160]:
         if not isinstance(raw, dict):
             continue
         try:
@@ -214,6 +216,19 @@ def _participants(conversation: dict) -> list[str]:
             if speaker and speaker not in names:
                 names.append(speaker)
     return names[:8]
+
+
+
+def _is_inferential(question: str) -> bool:
+    lower = question.lower().strip()
+    return bool(
+        lower.startswith(("would ", "could ", "should "))
+        or re.match(r"^what\s+(?:would|might|could)\b", lower)
+        or re.match(r"^(?:do you think|how would|is it likely)\b", lower)
+        or " likely " in lower
+        or " might " in lower
+        or (" prefer " in lower and "?" in question)
+    )
 
 
 def run(
@@ -257,6 +272,7 @@ def run(
                 key=lambda key: int(key.split("_")[1]),
             )
             compiled_total = 0
+            session_payloads: list[tuple[str, str, str]] = []
             for session_key in session_keys:
                 raw_session = _session_text(conversation, session_key)
                 router.ingest_log(
@@ -266,17 +282,34 @@ def run(
                     project_path=project_path,
                     tags=["memeval"],
                 )
-
                 session_date = str(
                     conversation.get(f"{session_key}_date_time") or ""
                 )
-                compiled = _compile_session(
-                    client,
-                    llm_model,
-                    participants=participants,
-                    session_date=session_date,
-                    session_text=raw_session,
-                )
+                session_payloads.append((session_key, session_date, raw_session))
+
+            compiled_by_session: dict[str, list[CompiledMemory]] = {}
+            with ThreadPoolExecutor(max_workers=min(10, max(1, len(session_payloads)))) as pool:
+                futures = {
+                    pool.submit(
+                        _compile_session,
+                        client,
+                        llm_model,
+                        participants=participants,
+                        session_date=session_date,
+                        session_text=raw_session,
+                    ): session_key
+                    for session_key, session_date, raw_session in session_payloads
+                }
+                for future in as_completed(futures):
+                    session_key = futures[future]
+                    try:
+                        compiled_by_session[session_key] = future.result()
+                    except Exception as exc:
+                        print(f"    Compile error ({session_key}): {exc}")
+                        compiled_by_session[session_key] = []
+
+            for session_key, session_date, _ in session_payloads:
+                compiled = compiled_by_session.get(session_key, [])
                 parsed_date = parse_loose_date(session_date)
                 event_time = parsed_date.isoformat() if parsed_date else None
                 outcome = router.ingest_compiled_memories(
@@ -324,7 +357,14 @@ def run(
                             "content": ANSWER_PROMPT.format(
                                 participants=", ".join(participants) or "unknown",
                                 evidence=evidence or "(no evidence retrieved)",
-                                question=question,
+                                question=(
+                                    question
+                                    + (
+                                        "\n\nThis is an inference question. Draw the minimal logical conclusion supported by the named entity's own facts; do not return None merely because the conclusion is not stated verbatim."
+                                        if _is_inferential(question)
+                                        else ""
+                                    )
+                                ),
                             ),
                         }
                     ],
