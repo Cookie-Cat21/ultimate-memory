@@ -174,7 +174,10 @@ _OCCUPATION_ANSWER_RE = re.compile(
 )
 _DIA_TURN_RE = re.compile(r"^\[D\d+:\d+\]")
 _IDENTITY_QUESTION_RE = re.compile(
-    r"\bidentity\b|\b(?:gender|transgender)\b|what is .+'s (?:identity|gender)",
+    r"\bwhat\s+is\s+.+?'s\s+(?:identity|gender)\b|"
+    r"\bwhat\s+(?:identity|gender)\s+(?:does|is|was)\b|"
+    r"\b(?:identify|identifies)\s+as\b|"
+    r"\bis\s+.+?\s+(?:transgender|nonbinary|non-binary)\b",
     re.I,
 )
 _IDENTITY_PHRASE_RE = re.compile(
@@ -1331,6 +1334,13 @@ def synthesize_answer(
                 spans = spans or _extract_date_spans(sentence)
                 spans = _prefer_absolute_date_spans(spans)
                 for date in spans:
+                    # Duration questions should answer with a duration, not the
+                    # session timestamp that happens to anchor the evidence.
+                    duration_bonus = (
+                        1.25
+                        if duration_question and _extract_duration_spans(date)
+                        else 0.0
+                    )
                     # Penalize dates that are just session stamps without topical words.
                     topical = overlap + (
                         0.4 if any(w in sentence.lower() for w in question_words) else 0.0
@@ -1341,11 +1351,12 @@ def synthesize_answer(
                     # when overlap is otherwise similar.
                     dated.append(
                         (
-                            meta + topical + abs_bonus + min(len(date), 40) * 0.015,
+                            meta + topical + abs_bonus + duration_bonus
+                            + min(len(date), 40) * 0.015,
                             date,
                         )
                     )
-            if item.session_date:
+            if item.session_date and not duration_question:
                 topical_sentences = [
                     sentence for sentence in _split_sentences(item.text)
                     if _overlap_score(question_words, sentence, entities) >= 0.22
