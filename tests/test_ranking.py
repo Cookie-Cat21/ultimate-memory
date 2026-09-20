@@ -66,3 +66,64 @@ def test_speaker_entity_takes_priority_over_capitalized_topic():
     ]
     scoped = filter_entity_scoped_results(results, ["LGBTQ", "Caroline"], min_matches=1)
     assert [item["id"] for item in scoped] == ["caroline"]
+
+
+def test_question_speaker_only_pair_is_weak_evidence():
+    results = [
+        {
+            "id": "pair",
+            "text": "Melanie: What books have you read?\nCaroline: I read Dune.",
+            "provenance": {
+                "pair": True,
+                "question_speaker": "Melanie",
+                "answer_speaker": "Caroline",
+            },
+        },
+        {
+            "id": "direct",
+            "text": "Melanie: I read The Hobbit last year.",
+            "provenance": {"speaker": "Melanie", "direct_turn": True},
+        },
+    ]
+    scoped = filter_entity_scoped_results(results, ["Melanie"], min_matches=1)
+    assert [item["id"] for item in scoped] == ["direct"]
+
+
+def test_pair_answer_speaker_is_strong_evidence():
+    results = [
+        {
+            "id": "pair",
+            "text": "Caroline: What books have you read?\nMelanie: I read The Hobbit.",
+            "provenance": {
+                "pair": True,
+                "question_speaker": "Caroline",
+                "answer_speaker": "Melanie",
+            },
+        },
+        {
+            "id": "noise",
+            "text": "Caroline mentioned Melanie while discussing art.",
+            "provenance": {},
+        },
+    ]
+    scoped = filter_entity_scoped_results(results, ["Melanie"], min_matches=1)
+    assert [item["id"] for item in scoped] == ["pair"]
+
+
+def test_nested_vector_payload_preserves_answer_attribution():
+    results = [
+        {
+            "id": "vector-pair",
+            "text": "Caroline: What do you do to relax?\nMelanie: I go running.",
+            "provenance": {
+                "source": "qdrant",
+                "payload": {
+                    "pair": True,
+                    "question_speaker": "Caroline",
+                    "answer_speaker": "Melanie",
+                },
+            },
+        }
+    ]
+    scoped = filter_entity_scoped_results(results, ["Melanie"], min_matches=1)
+    assert [item["id"] for item in scoped] == ["vector-pair"]
