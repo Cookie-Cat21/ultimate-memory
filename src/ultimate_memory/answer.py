@@ -605,6 +605,11 @@ def _context_metadata_bonus(
     if provenance.get("hop"):
         bonus += 0.45
 
+    if provenance.get("conversation_neighbor"):
+        bonus += 0.28
+    if provenance.get("source") == "conversation-window":
+        bonus += 0.22
+
     if provenance.get("chain_reachable"):
         bonus += 0.14
         bonus += min(0.28, 0.08 * int(provenance.get("chain_target_hits") or 0))
