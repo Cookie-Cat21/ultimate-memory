@@ -419,3 +419,24 @@ def test_duration_beats_session_date_for_how_long_question():
     ]
     answer = synthesize_answer("How long has Caroline had this group of friends for?", contexts)
     assert answer.lower() == "4 years"
+
+
+def test_location_list_handles_lowercase_places_and_strips_time_modifiers():
+    contexts = [
+        {"text": "Melanie: We camped at the beach last summer.", "score": 0.9},
+        {"text": "Melanie: We camped in the forest this spring.", "score": 0.8},
+    ]
+    answer = synthesize_answer("Where has Melanie camped?", contexts)
+    assert "beach" in answer.lower()
+    assert "forest" in answer.lower()
+    assert "last summer" not in answer.lower()
+    assert "this spring" not in answer.lower()
+
+
+def test_shared_city_cleanup_keeps_city_not_time_modifier():
+    contexts = [
+        {"text": "Jean: I visited Rome last spring.", "score": 0.9},
+        {"text": "John: I traveled to Rome last year.", "score": 0.9},
+    ]
+    answer = synthesize_answer("Which city have both Jean and John visited?", contexts)
+    assert answer.lower() == "rome"
