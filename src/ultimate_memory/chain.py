@@ -103,6 +103,10 @@ def rank_evidence_chain(question: str, contexts: list[dict], *, max_depth: int =
         score += min(0.36, 0.09 * target_hits)
         if bridge_count >= 2:
             score += 0.08
+        # A context that only repeats the starting entity without advancing
+        # toward a relation/target in the question is not useful multi-hop evidence.
+        if min_depth == 0 and max_reachable_depth == 0 and target_hits == 0:
+            score -= 0.28
 
         enriched = dict(item)
         provenance = dict(enriched.get("provenance") or {})
