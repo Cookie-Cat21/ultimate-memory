@@ -178,7 +178,13 @@ class MemoryRouter:
             if token.lower() not in stop and len(token) > 2
         ]
         dense_query = " ".join(dense_terms[:10]) or question
-        search_queries = list(dict.fromkeys([dense_query, question, *plan.expansions]))
+        expanded_queries = [
+            f"{dense_query} {expansion}".strip()
+            for expansion in plan.expansions
+        ]
+        search_queries = list(
+            dict.fromkeys([dense_query, question, *expanded_queries])
+        )
 
         rich_contexts: list[dict] = []
         search_result: dict = {"results": []}
@@ -208,7 +214,7 @@ class MemoryRouter:
         # Direct and temporal questions should stay attached to the named
         # subject. Multi-hop questions deliberately skip this hard gate because
         # they must traverse bridge entities.
-        if plan.kind != "multi_hop" and plan.entities:
+        if not plan.requires_bridge and plan.entities:
             rich_contexts = filter_entity_scoped_results(
                 rich_contexts,
                 plan.entities,
@@ -275,11 +281,15 @@ class MemoryRouter:
 
         initial_results = search_result.get("results") or []
         seen_entity_keys = {normalize_entity(entity) for entity in plan.entities}
-        frontier = extract_hop_entities(
-            question,
-            initial_results,
-            exclude=None,
-            strict=plan.hop_depth > 1,
+        frontier = (
+            extract_hop_entities(
+                question,
+                initial_results,
+                exclude=None,
+                strict=True,
+            )
+            if plan.requires_bridge
+            else []
         )
         hop_entities: list[str] = list(frontier)
         hop_searches: list[dict] = []
@@ -343,7 +353,7 @@ class MemoryRouter:
             depth += 1
 
         rich_contexts = merge_contexts(rich_contexts, [])
-        if plan.kind == "multi_hop":
+        if plan.requires_bridge:
             rich_contexts = rank_evidence_chain(question, rich_contexts)
         else:
             rich_contexts.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
