@@ -132,9 +132,19 @@ _RELATIVE_ONLY_DATE_RE = re.compile(
     re.I,
 )
 
+_NUMBER_WORD = r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|a\s+few|several)"
 _DURATION_SPAN_RE = re.compile(
-    r"\b(\d+\s+years?(?:\s+ago)?|\d+\s+months?(?:\s+ago)?|\d+\s+weeks?(?:\s+ago)?|"
-    r"for\s+\d+\s+years?|\dover\s+\d+\s+years?)\b",
+    rf"\b((?:\d+|{_NUMBER_WORD})\s+years?(?:\s+ago)?|"
+    rf"(?:\d+|{_NUMBER_WORD})\s+months?(?:\s+ago)?|"
+    rf"(?:\d+|{_NUMBER_WORD})\s+weeks?(?:\s+ago)?|"
+    rf"(?:for|over)\s+(?:\d+|{_NUMBER_WORD})\s+(?:years?|months?|weeks?))\b",
+    re.I,
+)
+
+_GREETING_ONLY_RE = re.compile(
+    r"^(?:\[D\d+:\d+\]\s*)?(?:[A-Z][a-z]+\s*:\s*)?"
+    r"(?:hey|hi|hello|thanks|thank\s+you|wow|great|awesome|nice|cool|sure|yep|yeah)"
+    r"(?:[\s,!.'-]+[A-Z][a-z]+)?[!?.]*$",
     re.I,
 )
 
@@ -736,6 +746,11 @@ def _score_candidate(
             score += 0.9
 
     lower = span.lower()
+    if _GREETING_ONLY_RE.match(span.strip()):
+        score -= 1.4
+    if _GREETING_ONLY_RE.match(sentence.strip()):
+        score -= 0.8
+
     if kind == "yes_no":
         if any(cue in lower for cue in _NEG_CUES):
             score += 0.2
@@ -885,12 +900,17 @@ def synthesize_answer(
 
     # For "when" questions, prefer contexts that actually contain date spans.
     if kind == "when":
-        dated_only = [
+        duration_question = bool(
+            re.search(r"\bhow long\b|\bhow many\s+(?:years?|months?|weeks?)\b", question, re.I)
+        )
+        temporal_only = [
             item for item in normalized
-            if _extract_date_spans(item.text) or item.session_date
+            if _extract_date_spans(item.text)
+            or _extract_duration_spans(item.text)
+            or item.session_date
         ]
-        if dated_only:
-            normalized = dated_only
+        if temporal_only:
+            normalized = temporal_only
 
     if kind == "yes_no":
         sentences: list[tuple[float, str]] = []
@@ -945,7 +965,11 @@ def synthesize_answer(
 
     if kind == "when":
         duration_question = bool(
-            re.search(r"\bhow long\b|\bhow many years\b|\byears? ago\b", question, re.I)
+            re.search(
+                r"\bhow long\b|\bhow many\s+(?:years?|months?|weeks?)\b|\byears? ago\b",
+                question,
+                re.I,
+            )
         )
         # Prefer a date that co-occurs with question entities/content in the same sentence.
         dated: list[tuple[float, str]] = []
