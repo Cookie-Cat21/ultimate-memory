@@ -71,6 +71,23 @@ def format_day_month_year(when: datetime) -> str:
     return f"{when.day} {when.strftime('%B')} {when.year}"
 
 
+def format_month_year(when: datetime) -> str:
+    return f"{when.strftime('%B')} {when.year}"
+
+
+def _shift_month(anchor: datetime, delta: int) -> datetime:
+    month0 = anchor.year * 12 + (anchor.month - 1) + delta
+    year, month_index = divmod(month0, 12)
+    return datetime(year, month_index + 1, 1)
+
+
+def _previous_weekday(anchor: datetime, weekday: int) -> datetime:
+    days_back = (anchor.weekday() - weekday) % 7
+    if days_back == 0:
+        days_back = 7
+    return anchor - timedelta(days=days_back)
+
+
 def resolve_relative_dates(text: str, anchor: datetime | None) -> str:
     """Replace yesterday/today/last year/etc. with absolute dates using *anchor*."""
     if anchor is None:
@@ -84,11 +101,34 @@ def resolve_relative_dates(text: str, anchor: datetime | None) -> str:
         (r"\bthis\s+year\b", f"in {anchor.year}"),
         (
             r"\blast\s+month\b",
-            f"in {format_day_month_year(anchor.replace(day=1) - timedelta(days=1))}",
+            f"in {format_month_year(_shift_month(anchor, -1))}",
         ),
+        (r"\bthis\s+month\b", f"in {format_month_year(anchor)}"),
+        (r"\bnext\s+month\b", f"in {format_month_year(_shift_month(anchor, 1))}"),
+        (r"\blast\s+week\b", f"around {format_day_month_year(anchor - timedelta(days=7))}"),
+        (r"\bthis\s+week\b", f"around {format_day_month_year(anchor)}"),
+        (r"\bnext\s+week\b", f"around {format_day_month_year(anchor + timedelta(days=7))}"),
         (r"\ba\s+year\s+ago\b", f"in {anchor.year - 1}"),
         (r"\btwo\s+years\s+ago\b", f"in {anchor.year - 2}"),
     ]
     for pattern, value in replacements:
         out = re.sub(pattern, value, out, flags=re.IGNORECASE)
+
+    weekday_names = {
+        "monday": 0,
+        "tuesday": 1,
+        "wednesday": 2,
+        "thursday": 3,
+        "friday": 4,
+        "saturday": 5,
+        "sunday": 6,
+    }
+    for name, weekday in weekday_names.items():
+        when = _previous_weekday(anchor, weekday)
+        out = re.sub(
+            rf"\blast\s+{name}\b",
+            f"on {format_day_month_year(when)}",
+            out,
+            flags=re.IGNORECASE,
+        )
     return out
