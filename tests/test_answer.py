@@ -297,3 +297,23 @@ session_date: 10 May 2023
         for item in result["search"].get("results", [])
     ) is False  # neighbors are answer-context expansion, not base search output
     assert "guinea pig" in " ".join(result["contexts_used"]).lower()
+
+
+def test_list_synthesis_returns_compact_locations():
+    contexts = [
+        {"text": "Jon: I visited Paris last winter.", "score": 0.9},
+        {"text": "Jon: I traveled to Rome this summer.", "score": 0.8},
+    ]
+    answer = synthesize_answer("Which cities has Jon visited?", contexts)
+    assert "Paris" in answer and "Rome" in answer
+    assert len(answer) < 80
+
+
+def test_list_synthesis_extracts_quoted_titles():
+    contexts = [
+        {"text": 'Alex: I read "Dune" last month.', "score": 0.9},
+        {"text": 'Alex: I also read "The Hobbit" this year.', "score": 0.8},
+    ]
+    answer = synthesize_answer("What books has Alex read?", contexts)
+    assert "Dune" in answer and "The Hobbit" in answer
+    assert len(answer) < 80
