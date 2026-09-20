@@ -136,7 +136,7 @@ def _hop_depth(question: str, entities: list[str] | None = None) -> int:
 def _memory_types(question: str) -> list[str]:
     lower = question.lower()
     types: list[str] = []
-    if re.search(r"\bprefer|preference|always|never|style|likes?\b", lower):
+    if re.search(r"\bprefer|preference|favorite|favourite|always|never|style|likes?\b", lower):
         types.append("preference")
     if re.search(r"\bdecision|decide|decided|chose|chosen|why did we|why was\b", lower):
         types.append("decision")
@@ -155,8 +155,8 @@ def _expansions(question: str) -> list[str]:
         expansions.append("work job employer role")
     if re.search(r"\blive|lives|location|based|where\b", lower):
         expansions.append("location lives based moved")
-    if re.search(r"\bprefer|preference|likes?\b", lower):
-        expansions.append("preference prefer likes")
+    if re.search(r"\bprefer|preference|favorite|favourite|likes?\b", lower):
+        expansions.append("preference prefer favorite favourite likes")
     if re.search(r"\bdecision|decide|chose|chosen|why\b", lower):
         expansions.append("decision chose reason rationale")
     if re.search(r"\bhow do|how to|steps?|procedure|process\b", lower):
