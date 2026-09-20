@@ -1,6 +1,6 @@
 [project]
 name = "ultimate-memory"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local-first atomic bi-temporal MCP memory router for Claude Code and Codex."
 readme = "README.md"
 license = "MIT"
