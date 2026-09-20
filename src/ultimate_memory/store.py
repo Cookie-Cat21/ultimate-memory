@@ -238,7 +238,8 @@ class LocalStore:
                 rows = conn.execute(
                     f"""
                     select f.id, f.title, f.text, f.source_path, f.memory_type,
-                           bm25(memory_fts) as score
+                           bm25(memory_fts) as score,
+                           i.metadata_json, i.created_at, i.project_path
                     from memory_fts f
                     join memory_index i on i.id = f.id
                     where memory_fts match ?
@@ -259,7 +260,8 @@ class LocalStore:
                 like_params.append(limit)
                 rows = conn.execute(
                     f"""
-                    select id, title, text, source_path, memory_type, 0.0 as score
+                    select id, title, text, source_path, memory_type, 0.0 as score,
+                           metadata_json, created_at, project_path
                     from memory_index
                     where (title like ? or text like ?)
                       {fallback_clause}
