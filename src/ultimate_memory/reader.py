@@ -24,7 +24,8 @@ _YES_NO = re.compile(
 )
 _TEMPORAL = re.compile(
     r"\bwhen\b|\bwhat\s+(?:date|year|month|day)\b|"
-    r"\bhow\s+long\b|\bhow\s+many\s+(?:years?|months?|weeks?|days?)\b",
+    r"\bhow\s+long\b|\bhow\s+many\s+(?:years?|months?|weeks?|days?)\b|"
+    r"\b(?:recent|recently|latest|newest|most\s+recent)\b",
     re.I,
 )
 _DISTRIBUTED = re.compile(
