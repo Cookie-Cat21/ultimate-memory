@@ -43,6 +43,14 @@ def rerank_candidates(
         if isinstance(claim, dict):
             score += 0.04 * float(claim.get("confidence") or 0.0)
 
+        # Direct dialogue/tool observations are primary evidence. Derived reflections
+        # remain useful, but should not outrank an equally relevant original turn.
+        if provenance.get("direct_turn") or provenance.get("dia_id"):
+            direct_overlap = len(q_tokens & r_tokens) / len(q_tokens) if q_tokens else 0.0
+            score += 0.12 + 0.18 * direct_overlap
+        if "auto-extracted from" in text_lower:
+            score -= 0.08
+
         if plan.temporal_mode == "current" and provenance.get("valid_until"):
             score -= 0.35
         elif plan.temporal_mode in {"historical", "as_of"} and provenance.get("valid_until"):
