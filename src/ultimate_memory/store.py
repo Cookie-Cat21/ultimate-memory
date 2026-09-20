@@ -406,6 +406,59 @@ class LocalStore:
             rows = conn.execute(sql, params).fetchall()
         return [self._row_to_atom(row) for row in rows]
 
+    def list_active_atoms_for_entities(
+        self,
+        entities: list[str],
+        *,
+        project_path: str | None = None,
+        limit: int = 240,
+        as_of: str | None = None,
+    ) -> list[AtomicMemory]:
+        """Return active atoms mentioning any requested entity.
+
+        This is used to bound local semantic search without requiring a graph or
+        external vector database.
+        """
+        cleaned = [entity.strip().casefold() for entity in entities if entity.strip()]
+        if not cleaned:
+            return self.list_active_atoms(
+                project_path=project_path,
+                limit=limit,
+                as_of=as_of,
+            )
+
+        if as_of:
+            clauses = ["valid_from <= ?", "(valid_until is null or valid_until > ?)"]
+            params: list[object] = [as_of, as_of]
+        else:
+            clauses = ["valid_until is null", "superseded_by is null"]
+            params = []
+        if project_path:
+            clauses.append("(project_path = ? or project_path is null or project_path = '')")
+            params.append(project_path)
+
+        entity_clauses: list[str] = []
+        for entity in cleaned:
+            entity_clauses.append(
+                "(lower(entities_json) like ? or lower(text) like ?)"
+            )
+            pattern = f"%{entity}%"
+            params.extend([pattern, pattern])
+        clauses.append("(" + " or ".join(entity_clauses) + ")")
+        params.append(limit)
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                select * from memory_atoms
+                where {' and '.join(clauses)}
+                order by salience desc, created_at desc
+                limit ?
+                """,
+                params,
+            ).fetchall()
+        return [self._row_to_atom(row) for row in rows]
+
     def search_atoms(
         self,
         query: str,
