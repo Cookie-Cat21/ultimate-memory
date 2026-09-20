@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 
 from .models import SearchResult
 from .planner import QueryPlan
@@ -77,6 +78,22 @@ def _duration_quantities(text: str) -> set[tuple[str, str]]:
     return out
 
 
+
+def _event_timestamp(result: SearchResult) -> float | None:
+    provenance = result.provenance or {}
+    raw = provenance.get("event_time") or provenance.get("created_at")
+    if not raw:
+        metadata = provenance.get("metadata")
+        if isinstance(metadata, dict):
+            raw = metadata.get("event_time") or metadata.get("created_at")
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
 def rerank_candidates(
     query: str,
     results: list[SearchResult],
@@ -85,6 +102,9 @@ def rerank_candidates(
     q_tokens = _tokens(query)
     wanted_types = set(plan.memory_types)
     query_quantities = _duration_quantities(query)
+    timestamps = [ts for result in results if (ts := _event_timestamp(result)) is not None]
+    newest_timestamp = max(timestamps) if timestamps else None
+    oldest_timestamp = min(timestamps) if timestamps else None
 
     for result in results:
         score = float(result.score)
@@ -131,8 +151,19 @@ def rerank_candidates(
         if "auto-extracted from" in text_lower:
             score -= 0.08
 
-        if plan.temporal_mode == "current" and provenance.get("valid_until"):
-            score -= 0.35
+        if plan.temporal_mode == "current":
+            if provenance.get("valid_until"):
+                score -= 0.35
+            event_ts = _event_timestamp(result)
+            if (
+                event_ts is not None
+                and newest_timestamp is not None
+                and oldest_timestamp is not None
+                and newest_timestamp > oldest_timestamp
+            ):
+                recency = (event_ts - oldest_timestamp) / (newest_timestamp - oldest_timestamp)
+                score += 0.22 * recency
+                provenance["recency_score"] = round(recency, 6)
         elif plan.temporal_mode in {"historical", "as_of"} and provenance.get("valid_until"):
             score += 0.08
 
