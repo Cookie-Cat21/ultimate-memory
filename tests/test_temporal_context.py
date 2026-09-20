@@ -51,8 +51,12 @@ def test_temporal_answer_sees_event_date_but_factual_answer_does_not(tmp_path):
     )
 
     temporal = router.answer("When did Alice move to Paris?", limit=5)
-    assert any("[Memory date: 2024-03-15]" in text for text in temporal["contexts_used"])
-    assert "2024" in temporal["answer"]
+    assert all("[Memory date:" not in text for text in temporal["contexts_used"])
+    assert any(
+        "[Memory date: 2024-03-15]" in text
+        for text in temporal["answer_contexts_used"]
+    )
 
     factual = router.answer("Where did Alice move?", limit=5)
     assert all("[Memory date:" not in text for text in factual["contexts_used"])
+    assert all("[Memory date:" not in text for text in factual["answer_contexts_used"])
