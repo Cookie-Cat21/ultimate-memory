@@ -453,3 +453,15 @@ def test_structured_reasoner_keeps_relevant_sentence_in_moderate_log():
     ]
     answer = synthesize_answer("How long has Caroline had this group of friends?", contexts)
     assert answer.lower() == "4 years"
+
+
+def test_single_structured_list_value_is_trusted():
+    contexts = [
+        {
+            "text": "Melanie: Been running longer since our last chat - a great way to destress.",
+            "score": 0.9,
+        },
+        {"text": "Melanie: Thanks, Caroline!", "score": 1.0},
+    ]
+    answer = synthesize_answer("What does Melanie do to destress?", contexts)
+    assert answer.lower() == "running"
