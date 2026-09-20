@@ -100,3 +100,15 @@ def test_recent_question_is_current_temporal():
     plan = plan_query("What did Melanie paint recently?")
     assert plan.kind == "temporal"
     assert plan.temporal_mode == "current"
+
+
+def test_in_what_ways_query_is_multi_evidence_not_bridge():
+    plan = plan_query("In what ways is Caroline participating in the LGBTQ community?")
+    assert plan.multi_evidence is True
+    assert plan.requires_bridge is False
+
+
+def test_group_preference_query_is_multi_evidence():
+    plan = plan_query("What do Melanie's kids like?")
+    assert plan.multi_evidence is True
+    assert plan.requires_bridge is False
