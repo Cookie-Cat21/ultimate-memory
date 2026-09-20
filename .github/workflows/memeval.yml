@@ -1,0 +1,73 @@
+name: Independent MemEval
+
+on:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: "Number of LoCoMo conversations"
+        required: true
+        default: "1"
+      with_judge:
+        description: "Run GPT judge in addition to token F1"
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: independent-memeval
+  cancel-in-progress: true
+
+jobs:
+  memeval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      LLM_MODEL: gpt-4.1-mini
+      EMBEDDING_MODEL: text-embedding-3-small
+    steps:
+      - name: Require API key
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::OPENAI_API_KEY Actions secret is not configured."
+            exit 1
+          fi
+
+      - name: Checkout Ultimate Memory
+        uses: actions/checkout@v4
+        with:
+          path: ultimate-memory
+
+      - name: Checkout Prosus MemEval
+        uses: actions/checkout@v4
+        with:
+          repository: ProsusAI/MemEval
+          path: MemEval
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install MemEval and Ultimate Memory
+        working-directory: MemEval
+        run: |
+          uv sync --all-extras
+          uv pip install -e ../ultimate-memory
+          cp ../ultimate-memory/integrations/memeval/ultimate_memory.py             src/agents_memory/systems/ultimate_memory.py
+
+      - name: Run fair head-to-head
+        working-directory: MemEval
+        shell: bash
+        run: |
+          EXTRA=""
+          if [ "${{ inputs.with_judge }}" != "true" ]; then
+            EXTRA="--skip-judge"
+          fi
+          uv run python scripts/run_full_benchmark.py             --systems ultimate_memory,propmem             --num-samples "${{ inputs.samples }}"             --llm-model "$LLM_MODEL"             $EXTRA             --output-dir benchmark-output
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: independent-memeval-results
+          path: MemEval/benchmark-output/
+          if-no-files-found: warn
