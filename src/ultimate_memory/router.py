@@ -1123,6 +1123,11 @@ class MemoryRouter:
                 "entities": atom.entities,
                 "project_path": atom.project_path,
                 "claim": atom.metadata.get("claim"),
+                "dia_id": atom.metadata.get("dia_id"),
+                "speaker": atom.metadata.get("speaker"),
+                "session_id": atom.metadata.get("session_id"),
+                "direct_turn": bool(atom.metadata.get("dia_id")),
+                "metadata": atom.metadata,
             },
         )
 
