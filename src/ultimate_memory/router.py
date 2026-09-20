@@ -410,13 +410,56 @@ class MemoryRouter:
             bm_results: list[SearchResult] = fb.result()
             graph_hits: list[dict] = fg.result()
 
+        # Keep the primary ranker identical to the clean v7 baseline. Exact
+        # entity retrieval is a rescue channel, not an equal RRF vote: giving a
+        # person's entire history another full ranking vote can crowd out the
+        # actual evidence for the question.
         results = self._rrf_rank(
-            [vector_results, keyword_results, bm_results, atom_results, entity_atom_results],
+            [vector_results, keyword_results, bm_results, atom_results],
             memory_types=memory_types,
             limit=actual_limit * 2,
         )
         results = self._apply_salience_rerank(results)
-        results = rerank_candidates(query, results, query_plan)[:actual_limit]
+        results = rerank_candidates(query, results, query_plan)
+
+        if query_plan.entities and entity_atom_results:
+            entity_keys = {entity.casefold() for entity in query_plan.entities}
+            base_has_entity = False
+            for result in results[:actual_limit]:
+                provenance_entities = {
+                    str(entity).casefold()
+                    for entity in (result.provenance.get("entities") or [])
+                }
+                if provenance_entities & entity_keys:
+                    base_has_entity = True
+                    break
+                text_lower = result.text.casefold()
+                if any(entity in text_lower for entity in entity_keys):
+                    base_has_entity = True
+                    break
+
+            if not base_has_entity:
+                # Add at most two exact-entity memories when every ordinary
+                # retrieval channel missed the entity. They still pass through
+                # the normal generic reranker and therefore must compete on
+                # topical relevance rather than receiving a fixed top rank.
+                existing = {result.source_path or result.id for result in results}
+                rescued = 0
+                for candidate in entity_atom_results:
+                    key = candidate.source_path or candidate.id
+                    if key in existing:
+                        continue
+                    candidate.provenance["entity_rescue"] = True
+                    candidate.score = min(candidate.score, 0.52)
+                    results.append(candidate)
+                    existing.add(key)
+                    rescued += 1
+                    if rescued >= 2:
+                        break
+                if rescued:
+                    results = rerank_candidates(query, results, query_plan)
+
+        results = results[:actual_limit]
 
         touched = [
             r.id for r in results
