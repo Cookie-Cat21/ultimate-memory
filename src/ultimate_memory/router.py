@@ -33,17 +33,8 @@ from .models import (
     SearchResult,
     safe_slug,
 )
-from .aggregate import (
-    aggregate_answer,
-    detect_aggregate_intent,
-    filter_list_items_for_question,
-    first_person,
-    harvest_list_items,
-    merge_list_answers,
-)
 from .answer import f1_ready_text, synthesize_answer
 from .hops import (
-    MAX_HOP_DEPTH,
     MAX_HOP_SEARCHES,
     MULTI_HOP_SEARCH_BUDGET,
     build_hop_queries,
@@ -354,6 +345,7 @@ class MemoryRouter:
                 limit=actual_limit,
                 memory_types=memory_types,
                 include_superseded=include_superseded,
+                project_path=project_path,
                 as_of=as_of,
                 prefer_older_valid_from=temporal_query,
             )
@@ -1053,6 +1045,7 @@ class MemoryRouter:
         limit: int,
         memory_types: list[str] | None,
         include_superseded: bool,
+        project_path: str | None = None,
         as_of: str | None = None,
         prefer_older_valid_from: bool = False,
     ) -> list[SearchResult]:
@@ -1060,6 +1053,7 @@ class MemoryRouter:
             query,
             limit=limit if not prefer_older_valid_from else max(limit * 2, 16),
             memory_types=memory_types,
+            project_path=project_path,
             include_superseded=include_superseded,
             as_of=as_of,
         )
