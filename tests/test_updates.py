@@ -151,3 +151,20 @@ class TestKnowledgeUpdateSupersession:
         active = router.list_atoms(query="Carol", memory_types=["fact"], limit=10)
         assert active["count"] == 1
         assert "Austin" in active["atoms"][0]["text"]
+
+
+def test_cross_project_facts_do_not_supersede_each_other(tmp_path):
+    router = MemoryRouter(make_settings(tmp_path))
+    router.reflect(
+        ReflectionPayload(summary="a", facts=["Project app lives in London."], source_refs=["a"]),
+        project_path="/projects/a",
+    )
+    router.reflect(
+        ReflectionPayload(summary="b", facts=["Project app lives in Paris."], source_refs=["b"]),
+        project_path="/projects/b",
+    )
+
+    a = router.list_atoms(query="Project app", project_path="/projects/a", limit=10)
+    b = router.list_atoms(query="Project app", project_path="/projects/b", limit=10)
+    assert any("London" in item["text"] for item in a["atoms"])
+    assert any("Paris" in item["text"] for item in b["atoms"])
