@@ -1,4 +1,4 @@
-from evals.retrieval_metrics import ndcg_at_k, recall_at_k, reciprocal_rank
+from ultimate_memory.eval_metrics import ndcg_at_k, recall_at_k, reciprocal_rank
 
 
 def test_retrieval_metrics():
