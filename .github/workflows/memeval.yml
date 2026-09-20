@@ -51,7 +51,8 @@ jobs:
       - name: Install MemEval and Ultimate Memory
         working-directory: MemEval
         run: |
-          uv sync --all-extras
+          uv sync
+          uv pip install httpx
           uv pip install -e ../ultimate-memory
           cp ../ultimate-memory/integrations/memeval/ultimate_memory.py             src/agents_memory/systems/ultimate_memory.py
 
