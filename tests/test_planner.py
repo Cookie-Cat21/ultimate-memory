@@ -69,3 +69,22 @@ def test_duration_between_events_uses_multi_evidence_plan():
     assert plan.kind == "multi_hop"
     assert plan.hop_depth >= 2
     assert any("started" in expansion for expansion in plan.expansions)
+
+
+def test_distributed_list_query_is_not_a_bridge_walk():
+    plan = plan_query("What activities does Melanie partake in?")
+    assert plan.kind == "multi_hop"
+    assert plan.multi_evidence is True
+    assert plan.requires_bridge is False
+
+
+def test_shared_named_entities_are_multi_evidence_not_unknown_bridge():
+    plan = plan_query("Which city have both Jean and John visited?")
+    assert plan.multi_evidence is True
+    assert plan.requires_bridge is False
+
+
+def test_possessive_relation_chain_requires_bridge():
+    plan = plan_query("Where does Elena's sister's mentor work?")
+    assert plan.kind == "multi_hop"
+    assert plan.requires_bridge is True
