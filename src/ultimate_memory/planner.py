@@ -54,6 +54,14 @@ _COLLECTIVE_RE = re.compile(
     re.I,
 )
 
+_LIST_OR_SET_RE = re.compile(
+    r"\bwhich\s+(?:cities|places|countries|states|books|games|activities|items|things|ways|types|kinds)\b|"
+    r"\bwhat\s+(?:cities|places|countries|states|books|games|activities|items|things|ways|types|kinds)\b|"
+    r"\bwhat\s+does\s+.+?\s+(?:offer|provide|include)\b|"
+    r"\b(?:all|multiple|several)\s+(?:cities|places|books|activities|items|things|ways|types)\b",
+    re.I,
+)
+
 
 def _is_temporal_question(question: str) -> bool:
     return bool(_TEMPORAL_QUESTION_RE.search(question.lower()))
@@ -61,7 +69,7 @@ def _is_temporal_question(question: str) -> bool:
 
 def _is_collective_multi_hop(question: str, entities: list[str]) -> bool:
     lower = question.lower()
-    if _COLLECTIVE_RE.search(lower):
+    if _COLLECTIVE_RE.search(lower) or _LIST_OR_SET_RE.search(lower):
         return True
     if len(entities) >= 2 and re.search(r"\b(?:and|versus|vs\.?|compared?\s+to)\b", lower):
         return True
@@ -131,6 +139,10 @@ def _expansions(question: str) -> list[str]:
         expansions.append("procedure steps process")
     if re.search(r"\bbefore|previous|formerly|used to|prior\b", lower):
         expansions.append("previous formerly before historical")
+    if re.search(r"\bvisit|visited|trip|travel|cities|places\b", lower):
+        expansions.append("visited travel trip city place")
+    if re.search(r"\boffer|offers|offering|provide|provides|services\b", lower):
+        expansions.append("offer provides services classes workshops training")
     if _is_temporal_question(question):
         expansions.append("date year month day when duration time")
     return list(dict.fromkeys(expansions))
