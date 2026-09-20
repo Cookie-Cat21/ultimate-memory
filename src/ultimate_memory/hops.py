@@ -295,6 +295,32 @@ def extract_hop_entities(
     return ordered[:limit]
 
 
+_HOP_STOPWORDS = frozenset({
+    "what", "where", "when", "who", "whom", "which", "how", "why",
+    "does", "did", "do", "is", "are", "was", "were", "has", "have", "had",
+    "the", "a", "an", "to", "of", "in", "on", "for", "with", "from", "at",
+    "its", "his", "her", "their", "this", "that", "these", "those",
+})
+
+def salient_query_terms(question: str, *, limit: int = 6) -> list[str]:
+    """Extract generic relation/target terms for a follow-up retrieval query."""
+    terms: list[str] = []
+    seen: set[str] = set()
+    for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", question):
+        lower = token.lower()
+        if lower in _HOP_STOPWORDS:
+            continue
+        if token[:1].isupper() and lower not in {
+            "work", "job", "career", "employer", "mentor", "manager",
+            "headquarters", "location", "database", "repository", "project",
+        }:
+            continue
+        if lower in seen:
+            continue
+        seen.add(lower)
+        terms.append(lower)
+    return terms[:limit]
+
 def build_hop_queries(
     question: str,
     entities: list[str],
@@ -302,42 +328,30 @@ def build_hop_queries(
     max_queries: int = 2,
     strict: bool = False,
 ) -> list[str]:
-    """Build follow-up search queries for bridge entities discovered in hop 1."""
+    """Build benchmark-agnostic follow-up queries for bridge entities."""
     if not entities:
         return []
 
-    q_lower = question.lower()
     question_entity_keys = {
         normalize_entity(ent) for ent in extract_capitalized_entities(question, strict=strict)
     }
-
-    # Prefer bridge entities not already named in the question (e.g. Fiona, not Elena).
     bridge = [ent for ent in entities if normalize_entity(ent) not in question_entity_keys]
     candidates = bridge or list(entities)
+    tail_terms = salient_query_terms(question, limit=6)
+    tail = " ".join(tail_terms) if tail_terms else "facts"
 
     queries: list[str] = []
+    seen: set[str] = set()
     for entity in candidates:
         if len(queries) >= max_queries:
             break
-        if any(
-            cue in q_lower
-            for cue in ("work", "job", "do for a living", "occupation", "career", "employer")
-        ):
-            queries.append(f"{entity} work job")
-        elif any(cue in q_lower for cue in ("where", "live", "located", "city", "address")):
-            queries.append(f"{entity} lives location")
-        elif any(cue in q_lower for cue in ("when", "move", "start", "begin", "date")):
-            queries.append(f"{entity} when date")
-        elif "who" in q_lower or "name" in q_lower:
-            queries.append(f"{entity} named called")
-        else:
-            # Generic: anchor on the entity plus salient question terms.
-            terms = [t for t in re.findall(r"[a-z]{3,}", q_lower) if t not in {"what", "does", "the"}]
-            tail = " ".join(terms[:3]) if terms else "facts"
-            queries.append(f"{entity} {tail}")
-
+        query = f"{entity} {tail}".strip()
+        key = query.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        queries.append(query)
     return queries[:max_queries]
-
 
 def merge_contexts(
     initial: list[str] | list[dict],
