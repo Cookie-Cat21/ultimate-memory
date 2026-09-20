@@ -361,3 +361,21 @@ def test_shared_activity_intersection_uses_entity_evidence():
     ]
     answer = synthesize_answer("How do Jon and Gina both like to destress?", contexts)
     assert "danc" in answer.lower()
+
+
+def test_explicit_identity_label_beats_related_identity_sentence():
+    contexts = [
+        {"text": "Caroline: Painting helps me explore my identity and be true to myself.", "score": 1.0},
+        {"text": "Caroline: I'm a transgender woman and coming out changed my life.", "score": 0.7},
+    ]
+    answer = synthesize_answer("What is Caroline's identity?", contexts)
+    assert answer.lower() == "transgender woman"
+
+
+def test_favorite_value_is_extracted_compactly():
+    contexts = [
+        {"text": "Gina: My favorite style of dance is Contemporary.", "score": 0.8},
+        {"text": "Gina: Dance is a huge part of my life.", "score": 1.0},
+    ]
+    answer = synthesize_answer("What is Gina's favorite style of dance?", contexts)
+    assert answer.lower() == "contemporary"
