@@ -274,3 +274,26 @@ def test_greeting_only_candidate_is_penalized():
     ]
     answer = synthesize_answer("How does Gina describe the feeling that dance brings?", contexts)
     assert "magical" in answer.lower()
+
+
+def test_answer_expands_to_adjacent_conversation_turn(tmp_path):
+    router = MemoryRouter(make_settings(tmp_path))
+    transcript = """---
+session_date: 10 May 2023
+---
+[D1:1] Melanie: What pet do you have?
+[D1:2] Caroline: I have a guinea pig named Clover.
+[D1:3] Melanie: That sounds adorable.
+"""
+    router.ingest_log(
+        client="test",
+        session_id="adjacency",
+        transcript_or_path=transcript,
+        project_path="/project",
+    )
+    result = router.answer("What pet does Caroline have?", project_path="/project", limit=6)
+    assert any(
+        (item.get("provenance") or {}).get("conversation_neighbor")
+        for item in result["search"].get("results", [])
+    ) is False  # neighbors are answer-context expansion, not base search output
+    assert "guinea pig" in " ".join(result["contexts_used"]).lower()
