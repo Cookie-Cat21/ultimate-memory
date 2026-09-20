@@ -293,7 +293,42 @@ class MemoryRouter:
             frontier = next_frontier
             depth += 1
 
-        rich_contexts = merge_contexts(rich_contexts, [])
+        neighbor_contexts: list[dict] = []
+        neighbor_seen: set[str] = set()
+        for item in sorted(
+            rich_contexts,
+            key=lambda candidate: float(candidate.get("score") or 0.0),
+            reverse=True,
+        )[:8]:
+            provenance = item.get("provenance") or {}
+            dia_id = provenance.get("dia_id")
+            session_id = provenance.get("session_id")
+            if not dia_id or not session_id:
+                continue
+            for neighbor in self.store.dialogue_neighbors(
+                str(session_id),
+                str(dia_id),
+                radius=1,
+                project_path=project_path,
+            ):
+                if neighbor.id in neighbor_seen:
+                    continue
+                neighbor_seen.add(neighbor.id)
+                result = self._atom_to_search_result(
+                    neighbor,
+                    score=max(0.12, min(float(item.get("score") or 0.0) * 0.45, 0.34)),
+                ).model_dump()
+                result_provenance = dict(result.get("provenance") or {})
+                result_provenance["neighbor_of"] = str(item.get("id") or "")
+                result_provenance["neighbor_expansion"] = True
+                result["provenance"] = result_provenance
+                neighbor_contexts.append(result)
+                if len(neighbor_contexts) >= 8:
+                    break
+            if len(neighbor_contexts) >= 8:
+                break
+
+        rich_contexts = merge_contexts(rich_contexts, neighbor_contexts)
         if plan.kind == "multi_hop":
             rich_contexts = rank_evidence_chain(question, rich_contexts)
         else:
@@ -337,6 +372,7 @@ class MemoryRouter:
             "effective_hop_depth": effective_hop_depth,
             "hop_entities": list(dict.fromkeys(hop_entities)),
             "hop_searches": hop_searches,
+            "neighbor_contexts": len(neighbor_contexts),
             "aggregated": None,
             "reader_used": reader_used,
         }
@@ -1212,6 +1248,8 @@ class MemoryRouter:
                 "entities": atom.entities,
                 "project_path": atom.project_path,
                 "claim": atom.metadata.get("claim"),
+                "dia_id": atom.metadata.get("dia_id"),
+                "session_id": atom.metadata.get("session_id"),
             },
         )
 
