@@ -37,6 +37,7 @@ def memory_answer(
     project_path: str | None = None,
     limit: Annotated[int, "1 to 20"] = 8,
     as_of: str | None = None,
+    use_reader: bool = False,
 ) -> dict:
     """Search memory and synthesize an extractive answer for QA benchmarks (no LLM)."""
     return router.answer(
@@ -44,6 +45,7 @@ def memory_answer(
         project_path=project_path,
         limit=max(1, min(limit, 20)),
         as_of=as_of,
+        use_reader=use_reader,
     )
 
 

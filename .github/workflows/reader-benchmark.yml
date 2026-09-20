@@ -1,0 +1,24 @@
+name: Clean Reader Benchmark
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  reader-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TOKENIZERS_PARALLELISM: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+      - name: Install reader dependencies
+        run: uv sync --extra dev --extra llm
+      - name: Benchmark integrity
+        run: uv run python scripts/check_benchmark_integrity.py
+      - name: Reader smoke benchmark
+        run: uv run python evals/run_clean_benchmarks.py --quick --reader
+      - name: Reader holdout benchmark
+        run: uv run python evals/run_clean_benchmarks.py --start-dialog 1 --max-dialogs 1 --max-questions 40 --reader
