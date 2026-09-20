@@ -448,7 +448,11 @@ class MemoryRouter:
             ) if self._vector_ready else []
 
         def _keyword():
-            rows = self.store.keyword_search(query, actual_limit)
+            rows = self.store.keyword_search(
+                query,
+                actual_limit,
+                project_path=project_path,
+            )
             output: list[SearchResult] = []
             for row in rows:
                 try:
