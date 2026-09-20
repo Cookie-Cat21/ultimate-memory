@@ -15,6 +15,45 @@ def _tokens(text: str) -> set[str]:
     }
 
 
+def filter_entity_scoped_results(
+    results: list[dict],
+    entities: list[str],
+    *,
+    min_matches: int = 2,
+) -> list[dict]:
+    """Prefer evidence explicitly attached to the entities named in the query.
+
+    This is intentionally a post-retrieval gate rather than a storage filter:
+    global memories remain available, and multi-hop callers can simply skip this
+    helper when bridge-entity traversal is required.
+    """
+    entity_keys = [entity.strip().casefold() for entity in entities if entity.strip()]
+    if not entity_keys or not results:
+        return list(results)
+
+    matched: list[dict] = []
+    for item in results:
+        text = str(item.get("text") or "").casefold()
+        provenance = item.get("provenance") or {}
+        prov_entities = {
+            str(entity).strip().casefold()
+            for entity in provenance.get("entities") or []
+            if str(entity).strip()
+        }
+        speaker = str(provenance.get("speaker") or "").strip().casefold()
+
+        if any(
+            key in text
+            or key == speaker
+            or key in prov_entities
+            for key in entity_keys
+        ):
+            matched.append(item)
+
+    # Never collapse a query to an unusably tiny evidence pool.
+    return matched if len(matched) >= min_matches else list(results)
+
+
 def rerank_candidates(
     query: str,
     results: list[SearchResult],
