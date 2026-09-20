@@ -26,3 +26,14 @@ def test_matching_duration_quantity_beats_conflicting_duration():
         plan_query(query),
     )
     assert "Sweden" in ranked[0].text
+
+
+def test_recent_query_prefers_newer_event_time():
+    query = "What did Melanie paint recently?"
+    plan = plan_query(query)
+    old = result("Melanie painted horses.")
+    old.provenance["event_time"] = "2023-01-01T00:00:00+00:00"
+    new = result("Melanie painted a sunset.")
+    new.provenance["event_time"] = "2023-10-01T00:00:00+00:00"
+    ranked = rerank_candidates(query, [old, new], plan)
+    assert "sunset" in ranked[0].text
