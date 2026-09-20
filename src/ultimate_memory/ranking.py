@@ -54,6 +54,29 @@ def filter_entity_scoped_results(
     return matched if len(matched) >= min_matches else list(results)
 
 
+
+_NUMBER_WORDS = {
+    "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
+    "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
+    "eleven": "11", "twelve": "12",
+}
+
+
+def _duration_quantities(text: str) -> set[tuple[str, str]]:
+    out: set[tuple[str, str]] = set()
+    pattern = re.compile(
+        r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
+        r"\s+(years?|months?|weeks?|days?|hours?)\b",
+        re.I,
+    )
+    for match in pattern.finditer(text):
+        raw = match.group(1).lower()
+        number = _NUMBER_WORDS.get(raw, raw)
+        unit = match.group(2).lower().rstrip("s")
+        out.add((number, unit))
+    return out
+
+
 def rerank_candidates(
     query: str,
     results: list[SearchResult],
@@ -61,6 +84,7 @@ def rerank_candidates(
 ) -> list[SearchResult]:
     q_tokens = _tokens(query)
     wanted_types = set(plan.memory_types)
+    query_quantities = _duration_quantities(query)
 
     for result in results:
         score = float(result.score)
@@ -73,6 +97,18 @@ def rerank_candidates(
 
         entity_hits = sum(1 for entity in plan.entities if entity.lower() in text_lower)
         score += min(0.18, 0.07 * entity_hits)
+
+        if query_quantities:
+            result_quantities = _duration_quantities(result.text)
+            if result_quantities:
+                if query_quantities & result_quantities:
+                    score += 0.18
+                elif any(
+                    q_unit == r_unit
+                    for _, q_unit in query_quantities
+                    for _, r_unit in result_quantities
+                ):
+                    score -= 0.18
 
         if result.memory_type in wanted_types:
             score += 0.08
