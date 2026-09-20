@@ -27,7 +27,9 @@ from ultimate_memory.config import (
     RetrievalConfig,
     Settings,
 )
+from ultimate_memory.dates import parse_loose_date
 from ultimate_memory.local_semantic import LocalSemanticIndex
+from ultimate_memory.models import CompiledMemory
 from ultimate_memory.router import MemoryRouter
 
 
@@ -38,6 +40,40 @@ SYSTEM_INFO = {
     ),
     "infrastructure": "SQLite FTS + in-process OpenAI semantic retrieval; no external DB required",
 }
+
+
+COMPILE_PROMPT = """Compile durable atomic memories from this raw conversation session.
+
+Conversation participants: {participants}
+Session date: {session_date}
+
+Raw turns:
+{turns}
+
+Rules:
+1. Extract only information supported by the turns. Never invent or infer unstated facts.
+2. Each memory must be atomic: one durable fact, preference, decision, procedure, event,
+   relationship, status, ownership fact, activity, or plan.
+3. Name the subject explicitly. Replace first-person pronouns with the speaker name.
+4. Preserve exact names, places, titles, dates, quantities, and temporal qualifiers.
+5. Keep separate facts separate; do not merge unrelated information.
+6. Include the dialogue IDs that directly support each memory.
+7. entities must contain the people/organizations/places directly involved.
+8. memory_type must be one of: fact, preference, decision, procedure.
+9. Do not extract greetings, compliments, filler, or questions that contain no answer.
+10. Confidence is 0-1 and should reflect how explicitly the memory is stated.
+
+Return JSON:
+{{"memories": [
+  {{
+    "text": "explicit atomic memory",
+    "memory_type": "fact",
+    "entities": ["Entity"],
+    "source_dia_ids": ["D1:2"],
+    "confidence": 0.95
+  }}
+]}}
+"""
 
 
 ANSWER_PROMPT = """Answer the question using ONLY the memory evidence below.
@@ -109,6 +145,57 @@ def _session_text(conversation: dict, session_key: str) -> str:
     return "\n".join(lines)
 
 
+def _compile_session(
+    client: OpenAI,
+    model: str,
+    *,
+    participants: list[str],
+    session_date: str,
+    session_text: str,
+) -> list[CompiledMemory]:
+    turn_lines = [
+        line
+        for line in session_text.splitlines()
+        if line.strip().startswith("[D")
+    ]
+    if not turn_lines:
+        return []
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {
+                "role": "user",
+                "content": COMPILE_PROMPT.format(
+                    participants=", ".join(participants) or "unknown",
+                    session_date=session_date or "unknown",
+                    turns="\n".join(turn_lines),
+                ),
+            }
+        ],
+        response_format={"type": "json_object"},
+        temperature=0,
+        max_tokens=4096,
+    )
+    content = response.choices[0].message.content or "{}"
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError:
+        return []
+    raw_memories = payload.get("memories") or payload.get("facts") or []
+    if not isinstance(raw_memories, list):
+        return []
+
+    compiled: list[CompiledMemory] = []
+    for raw in raw_memories[:60]:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            compiled.append(CompiledMemory.model_validate(raw))
+        except Exception:
+            continue
+    return compiled
+
+
 def _participants(conversation: dict) -> list[str]:
     names: list[str] = []
     for key in ("speaker_a", "speaker_b"):
@@ -169,14 +256,42 @@ def run(
                 ),
                 key=lambda key: int(key.split("_")[1]),
             )
+            compiled_total = 0
             for session_key in session_keys:
+                raw_session = _session_text(conversation, session_key)
                 router.ingest_log(
                     client="memeval",
                     session_id=session_key,
-                    transcript_or_path=_session_text(conversation, session_key),
+                    transcript_or_path=raw_session,
                     project_path=project_path,
                     tags=["memeval"],
                 )
+
+                session_date = str(
+                    conversation.get(f"{session_key}_date_time") or ""
+                )
+                compiled = _compile_session(
+                    client,
+                    llm_model,
+                    participants=participants,
+                    session_date=session_date,
+                    session_text=raw_session,
+                )
+                parsed_date = parse_loose_date(session_date)
+                event_time = parsed_date.isoformat() if parsed_date else None
+                outcome = router.ingest_compiled_memories(
+                    compiled,
+                    session_id=session_key,
+                    project_path=project_path,
+                    event_time=event_time,
+                    compiler=f"memeval:{llm_model}",
+                )
+                compiled_total += int(outcome.get("created") or 0)
+
+            print(
+                f"    Ingested: sessions={len(session_keys)}, "
+                f"compiled_memories={compiled_total}"
+            )
 
             def answer_fn(question: str) -> str:
                 result = router.answer(
