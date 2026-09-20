@@ -104,6 +104,31 @@ def evidence_recall(contexts: list[str], evidence_ids: list[str], conversation: 
     return hits / len(evidence_ids)
 
 
+
+def _token_set(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", str(text).lower()))
+
+
+def gold_token_coverage(contexts: list[str], golds: list[str]) -> float:
+    """Best fraction of gold answer tokens present anywhere in retrieved contexts."""
+    context_tokens = _token_set("\n".join(contexts))
+    best = 0.0
+    for gold in golds:
+        gold_tokens = _token_set(gold)
+        if not gold_tokens:
+            continue
+        best = max(best, len(context_tokens & gold_tokens) / len(gold_tokens))
+    return best
+
+
+def expected_plan_kind(category: str) -> str:
+    if category == "multi_hop":
+        return "multi_hop"
+    if category == "temporal":
+        return "temporal"
+    return "single_hop"
+
+
 def run(
     *,
     start_dialog: int = 0,
@@ -123,6 +148,12 @@ def run(
 
     scores: dict[str, list[float]] = defaultdict(list)
     evidence_scores: list[float] = []
+    evidence_by_category: dict[str, list[float]] = defaultdict(list)
+    token_coverage_scores: list[float] = []
+    token_coverage_by_category: dict[str, list[float]] = defaultdict(list)
+    planner_total = 0
+    planner_correct = 0
+    planner_confusion: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     asked = 0
     started = time.perf_counter()
 
@@ -160,9 +191,22 @@ def run(
             )
             score = tokenize_f1(result["answer"], golds)
             scores[category].append(score)
-            evidence_scores.append(
-                evidence_recall(result.get("contexts_used") or [], qa.get("evidence") or [], conversation)
+            contexts_used = result.get("contexts_used") or []
+            evidence_score = evidence_recall(
+                contexts_used, qa.get("evidence") or [], conversation
             )
+            evidence_scores.append(evidence_score)
+            evidence_by_category[category].append(evidence_score)
+
+            coverage = gold_token_coverage(contexts_used, [str(g) for g in golds])
+            token_coverage_scores.append(coverage)
+            token_coverage_by_category[category].append(coverage)
+
+            planned_kind = str((result.get("query_plan") or {}).get("kind") or "unknown")
+            expected_kind = expected_plan_kind(category)
+            planner_total += 1
+            planner_correct += int(planned_kind == expected_kind)
+            planner_confusion[expected_kind][planned_kind] += 1
             asked += 1
 
         if max_questions is not None and asked >= max_questions:
@@ -176,6 +220,19 @@ def run(
         for category, values in sorted(scores.items())
     }
     all_scores = [score for values in scores.values() for score in values]
+    retrieval_by_category = {
+        category: {
+            "evidence_recall": round(100 * sum(values) / len(values), 2) if values else 0.0,
+            "gold_token_coverage": round(
+                100 * sum(token_coverage_by_category[category])
+                / len(token_coverage_by_category[category]),
+                2,
+            )
+            if token_coverage_by_category[category]
+            else 0.0,
+        }
+        for category, values in sorted(evidence_by_category.items())
+    }
     return {
         "benchmark": "locomo10-clean",
         "protocol": "raw-dialogue-only/no-gold-category/no-annotation-summaries",
@@ -185,6 +242,17 @@ def run(
         "overall_token_f1": round(100 * sum(all_scores) / len(all_scores), 2) if all_scores else 0.0,
         "evidence_recall": round(100 * sum(evidence_scores) / len(evidence_scores), 2)
         if evidence_scores else 0.0,
+        "gold_token_coverage": round(
+            100 * sum(token_coverage_scores) / len(token_coverage_scores), 2
+        )
+        if token_coverage_scores else 0.0,
+        "planner_kind_accuracy": round(100 * planner_correct / planner_total, 2)
+        if planner_total else 0.0,
+        "planner_confusion": {
+            expected: dict(sorted(predicted.items()))
+            for expected, predicted in sorted(planner_confusion.items())
+        },
+        "retrieval_by_category": retrieval_by_category,
         "by_category": by_category,
         "use_llm": use_llm,
     }
