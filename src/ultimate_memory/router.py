@@ -53,7 +53,7 @@ from .hops import (
 from .llm_answer import use_llm_from_env
 from .local_semantic import LocalSemanticIndex, enabled as local_semantic_enabled
 from .planner import plan_query
-from .ranking import rerank_candidates
+from .ranking import filter_entity_scoped_results, rerank_candidates
 from .store import LocalStore
 
 logger = logging.getLogger(__name__)
@@ -204,6 +204,16 @@ class MemoryRouter:
                 include_superseded=plan.include_superseded,
             )
             rich_contexts.extend(item for item in typed["results"] if item.get("text"))
+
+        # Direct and temporal questions should stay attached to the named
+        # subject. Multi-hop questions deliberately skip this hard gate because
+        # they must traverse bridge entities.
+        if plan.kind != "multi_hop" and plan.entities:
+            rich_contexts = filter_entity_scoped_results(
+                rich_contexts,
+                plan.entities,
+                min_matches=2,
+            )
 
         # Conversation adjacency is evidence: a retrieved question/request turn
         # is frequently answered by the immediately preceding or following turn.
