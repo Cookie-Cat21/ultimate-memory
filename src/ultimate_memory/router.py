@@ -38,7 +38,6 @@ from .hops import (
     MAX_HOP_SEARCHES,
     MULTI_HOP_SEARCH_BUDGET,
     build_hop_queries,
-    extract_capitalized_entities,
     extract_hop_entities,
     merge_contexts,
     normalize_entity,
