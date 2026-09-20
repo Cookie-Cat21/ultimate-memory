@@ -49,6 +49,7 @@ from .hops import (
     normalize_entity,
 )
 from .llm_answer import use_llm_from_env
+from .local_semantic import LocalSemanticIndex, enabled as local_semantic_enabled
 from .planner import plan_query
 from .ranking import rerank_candidates
 from .store import LocalStore
@@ -88,6 +89,7 @@ class MemoryRouter:
         self.graph = GraphAdapter(self.settings.neo4j)
         self._vector_ready_cache = False
         self._graph_ready_cache = False
+        self._local_semantic = LocalSemanticIndex(self.vector.embed)
 
     @property
     def _vector_ready(self) -> bool:
@@ -377,6 +379,21 @@ class MemoryRouter:
         def _graph():
             return self.graph.query(query, depth=1) if self._graph_ready else []
 
+        def _local_semantic():
+            if self._vector_ready or not local_semantic_enabled():
+                return []
+            atoms = self.store.list_active_atoms(
+                memory_types=memory_types,
+                project_path=project_path,
+                limit=max(actual_limit * 30, 240),
+                as_of=as_of,
+            )
+            return self._local_semantic.search(
+                query,
+                atoms,
+                limit=max(actual_limit * 2, 20),
+            )
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
             fv = pool.submit(_vector)
             fb = pool.submit(_basic)
@@ -387,9 +404,10 @@ class MemoryRouter:
             vector_results: list[SearchResult] = fv.result()
             bm_results: list[SearchResult] = fb.result()
             graph_hits: list[dict] = fg.result()
+            semantic_results = _local_semantic()
 
         results = self._rrf_rank(
-            [vector_results, keyword_results, bm_results, atom_results],
+            [vector_results, keyword_results, bm_results, atom_results, semantic_results],
             memory_types=memory_types,
             limit=actual_limit * 2,
         )
@@ -415,6 +433,7 @@ class MemoryRouter:
             "results": [result.model_dump() for result in results],
             "graph_hits": graph_hits[:5],
             "atoms_considered": len(atom_results),
+            "semantic_hits": len(semantic_results),
             "query_plan": query_plan.model_dump(),
         }
 
