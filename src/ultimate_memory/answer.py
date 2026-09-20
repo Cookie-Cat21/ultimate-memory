@@ -830,7 +830,11 @@ def _shared_entity_answer(
     return _truncate(surface, max_chars)
 
 
-def _list_answer(question: str, normalized: list[_ContextItem], max_chars: int) -> str | None:
+def _list_answer(
+    question: str,
+    normalized: list[_ContextItem],
+    max_chars: int,
+) -> tuple[str, bool] | None:
     question_words = _content_words(question)
     entities = _question_entities(question)
     scored_sentences: list[tuple[float, str]] = []
@@ -887,7 +891,7 @@ def _list_answer(question: str, normalized: list[_ContextItem], max_chars: int) 
 
     if values:
         compact = ", ".join(values)
-        return _truncate(compact, max_chars)
+        return _truncate(compact, max_chars), True
 
     # Last-resort evidence aggregation when no structured values were extractable.
     chosen: list[str] = []
@@ -899,7 +903,7 @@ def _list_answer(question: str, normalized: list[_ContextItem], max_chars: int) 
         used += len(sentence) + 2
         if len(chosen) >= 2:
             break
-    return _truncate(" ".join(chosen), max_chars) if chosen else None
+    return (_truncate(" ".join(chosen), max_chars), False) if chosen else None
 
 
 def _normalize_contexts(
@@ -1455,10 +1459,11 @@ def synthesize_answer(
     # Distributed/list questions may require evidence from multiple contexts.
     # Only use aggregation when at least two distinct high-relevance sentences exist.
     if list_question:
-        list_answer = _list_answer(question, normalized, max_chars)
-        if list_answer:
+        list_result = _list_answer(question, normalized, max_chars)
+        if list_result:
+            list_answer, structured_values = list_result
             parts = _split_sentences(list_answer)
-            if "," in list_answer or len(parts) >= 2 or any(
+            if structured_values or "," in list_answer or len(parts) >= 2 or any(
                 cue in list_answer.lower()
                 for cue in (
                     "visited", "trip to", "offer", "provid",
