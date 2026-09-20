@@ -29,7 +29,8 @@ _TEMPORAL = re.compile(
 )
 _DISTRIBUTED = re.compile(
     r"\bboth\b|\ball\b|"
-    r"\b(?:what|which)\s+[a-z]+s\b.*\b(?:has|have|did|does|are|were)\b|"
+    r"\b(?:what|which)\s+(?!(?:does|has|is|was|this)\b)[a-z]+s\b"
+    r".*\b(?:has|have|did|does|are|were)\b|"
     r"\bwhere\s+has\s+.+?\s+(?:camped|traveled|travelled|visited|stayed|lived)\b|"
     r"\bwhat\s+does\s+.+?\s+(?:offer|provide|include|do\s+to)\b",
     re.I,
