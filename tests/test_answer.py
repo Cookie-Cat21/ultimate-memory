@@ -229,3 +229,30 @@ class TestMemoryRouterAnswer:
         assert result["search"]["results"]
         f1 = tokenize_f1(result["answer"], "May 2023")
         assert f1 >= 0.5
+
+
+def test_when_can_use_relevant_session_frontmatter_date():
+    contexts = [
+        {
+            "text": "---\nsession_date: 4 February, 2023\n---\n[D4:3] Jon: My group is performing at the festival this month.",
+            "memory_type": "log",
+            "score": 0.9,
+        }
+    ]
+    answer = synthesize_answer("When is Jon's group performing at a festival?", contexts)
+    assert "February" in answer and "2023" in answer
+
+
+def test_relative_multi_year_date_is_extractable():
+    contexts = [{"text": "Gina: I got my tattoo a few years ago.", "score": 1.0}]
+    assert synthesize_answer("When did Gina get her tattoo?", contexts).lower() == "a few years ago"
+
+
+def test_list_question_combines_distributed_evidence():
+    contexts = [
+        {"text": "Jon: I visited Paris last winter.", "score": 0.9},
+        {"text": "Jon: I took a trip to Rome this summer.", "score": 0.8},
+    ]
+    answer = synthesize_answer("Which cities has Jon visited?", contexts)
+    assert "Paris" in answer
+    assert "Rome" in answer
