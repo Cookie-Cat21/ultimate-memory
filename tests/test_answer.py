@@ -399,3 +399,23 @@ def test_generic_event_participation_synthesis():
     answer = synthesize_answer("What events has Caroline participated in?", contexts)
     assert "pride parade" in answer.lower()
     assert "support group" in answer.lower()
+
+
+def test_transgender_topic_does_not_imply_identity_question():
+    contexts = [
+        {"text": "Caroline is a transgender woman.", "score": 0.5},
+        {"text": "Caroline: I'm going to a transgender conference in July 2023.", "score": 0.9},
+    ]
+    answer = synthesize_answer("When is Caroline going to the transgender conference?", contexts)
+    assert "July" in answer and "2023" in answer
+
+
+def test_duration_beats_session_date_for_how_long_question():
+    contexts = [
+        {
+            "text": "---\nsession_date: 13 September 2023\n---\nCaroline: I've had this group of friends for 4 years.",
+            "score": 0.9,
+        }
+    ]
+    answer = synthesize_answer("How long has Caroline had this group of friends for?", contexts)
+    assert answer.lower() == "4 years"
