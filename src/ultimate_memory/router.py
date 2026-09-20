@@ -358,12 +358,21 @@ class MemoryRouter:
         else:
             rich_contexts.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
 
-        context_budget = 18000 if plan.kind == "multi_hop" else 12000
+        if plan.multi_evidence and not plan.requires_bridge:
+            context_budget = 20000
+            max_per_source = 3
+        elif plan.requires_bridge:
+            context_budget = 18000
+            max_per_source = 8
+        else:
+            context_budget = 12000
+            max_per_source = 5
+
         rich_contexts = compile_context_packet(
             rich_contexts,
             max_chars=context_budget,
             max_items=max(limit * 3, 18),
-            max_per_source=8 if plan.kind == "multi_hop" else 5,
+            max_per_source=max_per_source,
         )
 
         use_local_llm = use_llm_from_env() if use_llm is None else use_llm
