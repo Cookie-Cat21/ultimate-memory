@@ -23,6 +23,7 @@ from .chunking import chunk_text
 from .chain import rank_evidence_chain
 from .claims import ensure_claim_metadata, structured_conflict_score
 from .config import Settings, load_settings
+from .context_compiler import compile_context_packet
 from .dates import parse_loose_date, resolve_relative_dates
 from .extraction import (
     extract_from_transcript,
@@ -336,7 +337,14 @@ class MemoryRouter:
             rich_contexts = rank_evidence_chain(question, rich_contexts)
         else:
             rich_contexts.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
-        rich_contexts = rich_contexts[: max(limit * 3, 18)]
+
+        context_budget = 18000 if plan.kind == "multi_hop" else 12000
+        rich_contexts = compile_context_packet(
+            rich_contexts,
+            max_chars=context_budget,
+            max_items=max(limit * 3, 18),
+            max_per_source=8 if plan.kind == "multi_hop" else 5,
+        )
 
         use_local_llm = use_llm_from_env() if use_llm is None else use_llm
         context_texts = [str(item.get("text") or "") for item in rich_contexts if item.get("text")]
@@ -370,6 +378,8 @@ class MemoryRouter:
             "answer": answer_text,
             "f1_text": f1_ready_text(answer_text),
             "contexts_used": context_texts,
+            "context_chars": sum(len(text) for text in context_texts),
+            "context_items": len(context_texts),
             "search": search_result,
             "query_plan": plan.model_dump(),
             "hop_entities": list(dict.fromkeys(hop_entities)),
