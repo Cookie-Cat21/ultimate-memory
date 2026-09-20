@@ -604,13 +604,11 @@ def _compact_list_values(question: str, sentence: str) -> list[str]:
         for pattern in (
             re.compile(
                 r"\b(?:visited|went|traveled|travelled|vacationed|camped|stayed|lived)"
-                r"\s+(?:in|at|to)?\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})",
-                re.I,
+                r"\s+(?:in|at|to)?\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})"
             ),
             re.compile(
                 r"\b(?:trip|vacation|camping)\s+(?:in|at|to)\s+"
-                r"([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})",
-                re.I,
+                r"([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})"
             ),
         ):
             values.extend(match.group(1).strip() for match in pattern.finditer(sentence))
