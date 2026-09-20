@@ -49,3 +49,20 @@ def test_multi_entity_filter_balances_named_people():
     balanced = filter_entity_scoped_results(results, ["Jean", "John"])
     assert balanced[0]["id"] == "a1"
     assert balanced[1]["id"] == "b1"
+
+
+def test_speaker_entity_takes_priority_over_capitalized_topic():
+    results = [
+        {
+            "id": "caroline",
+            "text": "Caroline attended a pride event.",
+            "provenance": {"speaker": "Caroline"},
+        },
+        {
+            "id": "melanie",
+            "text": "Melanie discussed LGBTQ community events.",
+            "provenance": {"speaker": "Melanie"},
+        },
+    ]
+    scoped = filter_entity_scoped_results(results, ["LGBTQ", "Caroline"], min_matches=1)
+    assert [item["id"] for item in scoped] == ["caroline"]
