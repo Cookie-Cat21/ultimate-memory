@@ -379,3 +379,23 @@ def test_favorite_value_is_extracted_compactly():
     ]
     answer = synthesize_answer("What is Gina's favorite style of dance?", contexts)
     assert answer.lower() == "contemporary"
+
+
+def test_generic_activity_list_synthesis():
+    contexts = [
+        {"text": "Melanie: I've been running farther to de-stress.", "score": 0.9},
+        {"text": "Melanie: I signed up for a pottery class because it feels therapeutic.", "score": 0.8},
+    ]
+    answer = synthesize_answer("What does Melanie do to destress?", contexts)
+    assert "running" in answer.lower()
+    assert "pottery" in answer.lower()
+
+
+def test_generic_event_participation_synthesis():
+    contexts = [
+        {"text": "Caroline: I attended a pride parade downtown.", "score": 0.9},
+        {"text": "Caroline: I went to a support group last week.", "score": 0.8},
+    ]
+    answer = synthesize_answer("What events has Caroline participated in?", contexts)
+    assert "pride parade" in answer.lower()
+    assert "support group" in answer.lower()
