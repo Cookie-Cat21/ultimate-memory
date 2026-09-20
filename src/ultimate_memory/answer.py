@@ -1022,8 +1022,10 @@ def _is_usable_context(item: _ContextItem) -> bool:
         return True
     if item.memory_type in _PREFERRED_MEMORY_TYPES and len(text) >= 8:
         return True
-    # Giant raw session dumps drown extractive QA — keep only shorter evidence.
-    if len(text) > 700 and item.memory_type in {"log", "note"}:
+    # Structured reasoning works sentence-by-sentence, so moderately long
+    # session evidence is still useful. Only reject truly oversized raw dumps;
+    # the context compiler already enforces the global packet budget.
+    if len(text) > 3000 and item.memory_type in {"log", "note"}:
         return False
     if len(text) < 8 and not re.search(r"\b(19|20)\d{2}\b", text):
         return False
