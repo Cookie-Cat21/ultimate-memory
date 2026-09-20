@@ -489,7 +489,7 @@ class LocalStore:
         project_path: str | None = None,
     ) -> list[AtomicMemory]:
         """Return nearby dialogue-turn atoms from the same session."""
-        match = re.fullmatch(r"(D\\d+):(\\d+)", dia_id.strip())
+        match = re.fullmatch(r"(D\d+):(\d+)", dia_id.strip())
         if not match or radius < 1:
             return []
         prefix, number_text = match.groups()
