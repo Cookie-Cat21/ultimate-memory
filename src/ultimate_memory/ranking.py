@@ -43,6 +43,14 @@ def rerank_candidates(
         if isinstance(claim, dict):
             score += 0.04 * float(claim.get("confidence") or 0.0)
 
+        kind = provenance.get("kind")
+        if kind == "proposition":
+            # Compact propositions are usually higher-precision evidence than
+            # a multi-sentence turn containing the same fact plus unrelated text.
+            score += 0.06
+        elif kind == "turn" and len(result.text) > 240:
+            score -= 0.03
+
         if plan.temporal_mode == "current" and provenance.get("valid_until"):
             score -= 0.35
         elif plan.temporal_mode in {"historical", "as_of"} and provenance.get("valid_until"):
