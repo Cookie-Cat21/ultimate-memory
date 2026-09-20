@@ -203,6 +203,37 @@ class MemoryRouter:
             )
             rich_contexts.extend(item for item in typed["results"] if item.get("text"))
 
+        # Conversation adjacency is evidence: a retrieved question/request turn
+        # is frequently answered by the immediately preceding or following turn.
+        neighbor_seen: set[str] = {
+            str(item.get("id") or item.get("source_path") or "")
+            for item in rich_contexts
+        }
+        for anchor in list(rich_contexts[: max(limit, 8)]):
+            provenance = anchor.get("provenance") or {}
+            session_id = str(provenance.get("session_id") or "")
+            dia_id = str(provenance.get("dia_id") or "")
+            if not session_id or not dia_id:
+                continue
+            for neighbor in self.store.neighboring_turn_atoms(
+                session_id,
+                dia_id,
+                radius=1,
+                project_path=project_path,
+            ):
+                if neighbor.id in neighbor_seen:
+                    continue
+                neighbor_result = self._atom_to_search_result(
+                    neighbor,
+                    score=max(float(anchor.get("score") or 0.0) - 0.04, 0.45),
+                ).model_dump()
+                nprov = dict(neighbor_result.get("provenance") or {})
+                nprov["conversation_neighbor"] = True
+                nprov["neighbor_of"] = dia_id
+                neighbor_result["provenance"] = nprov
+                rich_contexts.append(neighbor_result)
+                neighbor_seen.add(neighbor.id)
+
         initial_results = search_result.get("results") or []
         seen_entity_keys = {normalize_entity(entity) for entity in plan.entities}
         frontier = extract_hop_entities(
