@@ -623,6 +623,110 @@ def _compact_list_values(question: str, sentence: str) -> list[str]:
     return cleaned
 
 
+def _stem_shared_token(token: str) -> str:
+    lower = token.casefold().strip(".,;:!?'\"")
+    for suffix in ("ing", "ed", "es", "s"):
+        if len(lower) > len(suffix) + 3 and lower.endswith(suffix):
+            lower = lower[: -len(suffix)]
+            break
+    return lower
+
+
+def _shared_entity_answer(
+    question: str,
+    normalized: list[_ContextItem],
+    max_chars: int,
+) -> str | None:
+    """Find compact values independently supported for every named entity."""
+    if not re.search(r"\bboth\b|\bin common\b|\bshared\b|\beach\b", question, re.I):
+        return None
+
+    entities = sorted(_question_entities(question))
+    if len(entities) < 2:
+        return None
+
+    per_entity_values: dict[str, list[str]] = {entity: [] for entity in entities}
+    per_entity_tokens: dict[str, Counter[str]] = {entity: Counter() for entity in entities}
+    q_words = _content_words(question)
+
+    for item in normalized:
+        for sentence in _split_sentences(item.text):
+            lower = sentence.casefold()
+            matched_entities = [entity for entity in entities if entity in lower]
+            if not matched_entities:
+                continue
+
+            compact = _compact_list_values(question, sentence)
+            for entity in matched_entities:
+                per_entity_values[entity].extend(compact)
+
+                # Generic relation/action fallback for non-list commonality questions.
+                # Keep only content words not already present in the question/entity.
+                for token in _content_words(sentence):
+                    stem = _stem_shared_token(token)
+                    if (
+                        stem
+                        and stem not in {_stem_shared_token(word) for word in q_words}
+                        and stem not in {_stem_shared_token(e) for e in entities}
+                        and len(stem) >= 4
+                    ):
+                        per_entity_tokens[entity][stem] += 1
+
+    # Exact compact-value intersection first (cities, titles, services, etc.).
+    value_sets: list[dict[str, str]] = []
+    for entity in entities:
+        mapping: dict[str, str] = {}
+        for value in per_entity_values[entity]:
+            key = " ".join(_stem_shared_token(tok) for tok in _tokens(value))
+            if key:
+                mapping.setdefault(key, value)
+        value_sets.append(mapping)
+
+    if value_sets and all(value_sets):
+        common = set(value_sets[0])
+        for mapping in value_sets[1:]:
+            common &= set(mapping)
+        if common:
+            values = [value_sets[0][key] for key in sorted(common)]
+            return _truncate(", ".join(values[:8]), max_chars)
+
+    # Fallback: intersect salient content stems across each person's evidence.
+    token_sets = [set(counter) for counter in per_entity_tokens.values()]
+    if not token_sets or not all(token_sets):
+        return None
+    shared = set.intersection(*token_sets)
+    if not shared:
+        return None
+
+    generic = {
+        "have", "with", "from", "that", "this", "they", "their", "your", "just",
+        "really", "about", "been", "want", "like", "love", "great", "good", "also",
+        "make", "help", "thing", "time", "need", "when", "what", "both",
+    }
+    ranked = [
+        token
+        for token in shared
+        if token not in generic and token not in {_stem_shared_token(x) for x in q_words}
+    ]
+    if not ranked:
+        return None
+
+    # Prefer tokens repeatedly attested across people.
+    ranked.sort(
+        key=lambda token: sum(per_entity_tokens[e][token] for e in entities),
+        reverse=True,
+    )
+    best = ranked[0]
+    # Recover a readable surface form from evidence.
+    variants: Counter[str] = Counter()
+    for item in normalized:
+        for token in re.findall(r"[A-Za-z][A-Za-z'-]{2,}", item.text):
+            if _stem_shared_token(token) == best:
+                variants[token] += 1
+    surface = variants.most_common(1)[0][0] if variants else best
+    return _truncate(surface, max_chars)
+
+
 def _list_answer(question: str, normalized: list[_ContextItem], max_chars: int) -> str | None:
     question_words = _content_words(question)
     entities = _question_entities(question)
@@ -1047,6 +1151,10 @@ def synthesize_answer(
     identity_question = _is_identity_question(question)
 
     list_question = _is_list_question(question)
+
+    shared_answer = _shared_entity_answer(question, normalized, max_chars)
+    if shared_answer:
+        return shared_answer
 
     # For "when" questions, prefer contexts that actually contain date spans.
     if kind == "when":
