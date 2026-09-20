@@ -155,10 +155,8 @@ class TestMultiHopAnswer:
         assert "nurse" in result["answer"].lower()
         assert len(result["hop_searches"]) <= MAX_HOP_SEARCHES
 
-    def test_chained_two_level_hop_for_multi_hop_category(self, tmp_path):
-        """A question needing two bridges (Elena -> Fiona -> Marcus -> Stanford)
-        should chain hop searches instead of stopping after the first bridge,
-        when the category is multi_hop."""
+    def test_chained_two_level_hop_is_inferred(self, tmp_path):
+        """A two-bridge question should trigger chained retrieval automatically."""
         router = MemoryRouter(make_settings(tmp_path))
         router.store.upsert_atom(
             AtomicMemory(
@@ -188,8 +186,9 @@ class TestMultiHopAnswer:
         result = router.answer(
             "Where does Elena's sister's mentor work?",
             limit=5,
-            category="multi_hop",
         )
+
+        assert result["query_plan"]["kind"] == "multi_hop"
 
         # A second-level bridge entity (Marcus) must be discovered from the
         # first hop's results and searched in turn — proof the walk chained
@@ -200,9 +199,8 @@ class TestMultiHopAnswer:
             for text in result["contexts_used"]
         )
 
-    def test_non_multi_hop_category_keeps_single_pass_budget(self, tmp_path):
-        """single_hop/temporal/open_domain must keep the original depth-1,
-        budget-3 hop behavior so they don't regress."""
+    def test_single_hop_is_inferred_and_keeps_small_budget(self, tmp_path):
+        """A simple direct question should stay on the shallow retrieval path."""
         router = MemoryRouter(make_settings(tmp_path))
         router.store.upsert_atom(
             AtomicMemory(
@@ -216,7 +214,7 @@ class TestMultiHopAnswer:
         result = router.answer(
             "What does Alice do for work?",
             limit=5,
-            category="single_hop",
         )
 
+        assert result["query_plan"]["kind"] == "single_hop"
         assert len(result["hop_searches"]) <= MAX_HOP_SEARCHES
