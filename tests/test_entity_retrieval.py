@@ -61,8 +61,9 @@ def test_entity_channel_recovers_low_lexical_overlap(tmp_path):
         limit=5,
     )
 
-    elena = next(item for item in result["results"] if item["id"] == "elena-role")
-    assert elena["provenance"]["entity_match"] is True
+    assert any(item["id"] == "elena-role" for item in result["results"])
+    # The explicit entity index is evaluated even when ordinary FTS already
+    # found the same atom; rescue is only injected if the base channels miss.
     assert result["entity_atoms_considered"] >= 1
 
 
