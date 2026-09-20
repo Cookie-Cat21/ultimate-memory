@@ -1,6 +1,7 @@
 name: Independent MemEval
 
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       samples:
@@ -58,11 +59,20 @@ jobs:
         working-directory: MemEval
         shell: bash
         run: |
-          EXTRA=""
-          if [ "${{ inputs.with_judge }}" != "true" ]; then
-            EXTRA="--skip-judge"
+          SAMPLES="1"
+          EXTRA="--skip-judge"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SAMPLES="${{ inputs.samples }}"
+            if [ "${{ inputs.with_judge }}" = "true" ]; then
+              EXTRA=""
+            fi
           fi
-          uv run python scripts/run_full_benchmark.py             --systems ultimate_memory,propmem             --num-samples "${{ inputs.samples }}"             --llm-model "$LLM_MODEL"             $EXTRA             --output-dir benchmark-output
+          uv run python scripts/run_full_benchmark.py \
+            --systems ultimate_memory,propmem \
+            --num-samples "$SAMPLES" \
+            --llm-model "$LLM_MODEL" \
+            $EXTRA \
+            --output-dir benchmark-output
 
       - name: Upload benchmark results
         if: always()
