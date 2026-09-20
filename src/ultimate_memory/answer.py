@@ -574,10 +574,11 @@ def _is_list_question(question: str) -> bool:
     lower = question.lower()
     return bool(
         re.search(
-            r"\bboth\b|\ball\b|"
-            r"\bwhich\s+(?:cities|places|countries|states|books|games|activities|items|things|ways|types|kinds)\b|"
-            r"\bwhat\s+(?:cities|places|countries|states|books|games|activities|items|things|ways|types|kinds)\b|"
-            r"\bwhat\s+does\s+.+?\s+(?:offer|provide|include)\b",
+            r"\bboth\b|\ball\b|\bin\s+what\s+ways\b|"
+            r"\bwhich\s+(?!(?:is|was|does|did|has|have)\b)[a-z]+s\b|"
+            r"\bwhat\s+(?!(?:is|was|does|did|has|have)\b)[a-z]+s\b|"
+            r"\bwhat\s+does\s+.+?\s+(?:offer|provide|include|do\s+to)\b|"
+            r"\bwhere\s+has\s+.+?\s+(?:camped|traveled|travelled|visited|stayed|lived)\b",
             lower,
         )
     )
@@ -649,6 +650,33 @@ def _compact_list_values(question: str, sentence: str) -> list[str]:
                 for part in re.split(r",|\band\b|\bor\b", phrase, flags=re.I)
                 if 2 <= len(part.strip()) <= 70
             )
+
+    # Generic activity / participation values.
+    if re.search(
+        r"\b(?:activities?|hobbies?|partake|destress|de-stress|in what ways|participat|events?)\b",
+        lower_q,
+    ):
+        for pattern in (
+            re.compile(
+                r"\b(?:been|started|kept|enjoys?|likes?|loves?|go|goes|went)\s+"
+                r"(?:to\s+)?([a-z][a-z-]+ing)\b",
+                re.I,
+            ),
+            re.compile(
+                r"\bsigned\s+up\s+for\s+(?:a\s+|an\s+)?"
+                r"([a-z][a-z-]+)(?:\s+class|\s+course|\s+workshop)\b",
+                re.I,
+            ),
+            re.compile(
+                r"\b(?:attended|joined|participated\s+in|went\s+to)\s+"
+                r"(?:a\s+|an\s+|the\s+)?([^,.!?]{2,70})",
+                re.I,
+            ),
+        ):
+            for match in pattern.finditer(sentence):
+                value = match.group(1).strip(" ,.;:-")
+                if 2 <= len(value) <= 70:
+                    values.append(value)
 
     # De-duplicate and discard obvious dialogue scaffolding.
     cleaned: list[str] = []
