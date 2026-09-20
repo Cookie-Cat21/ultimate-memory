@@ -94,3 +94,9 @@ def test_favorite_question_prefers_preference_memory():
     plan = plan_query("What is Gina's favorite style of dance?")
     assert "preference" in plan.memory_types
     assert any("favorite" in expansion for expansion in plan.expansions)
+
+
+def test_recent_question_is_current_temporal():
+    plan = plan_query("What did Melanie paint recently?")
+    assert plan.kind == "temporal"
+    assert plan.temporal_mode == "current"
