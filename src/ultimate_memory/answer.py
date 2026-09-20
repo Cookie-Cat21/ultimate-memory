@@ -177,7 +177,8 @@ _IDENTITY_QUESTION_RE = re.compile(
     r"\bwhat\s+is\s+.+?'s\s+(?:identity|gender)\b|"
     r"\bwhat\s+(?:identity|gender)\s+(?:does|is|was)\b|"
     r"\b(?:identify|identifies)\s+as\b|"
-    r"\bis\s+.+?\s+(?:transgender|nonbinary|non-binary)\b",
+    r"\bis\s+[A-Z][\w.-]*(?:\s+[A-Z][\w.-]*)?\s+"
+    r"(?:a\s+|an\s+)?(?:transgender|nonbinary|non-binary)\b",
     re.I,
 )
 _IDENTITY_PHRASE_RE = re.compile(
