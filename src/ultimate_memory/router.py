@@ -278,6 +278,7 @@ class MemoryRouter:
             # evidence-completion rule rather than a benchmark category hint.
             if (
                 depth == 0
+                and plan.kind == "single_hop"
                 and effective_hop_depth == 1
                 and next_frontier
                 and evidence_target_hits(
