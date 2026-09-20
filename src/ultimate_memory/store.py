@@ -89,10 +89,18 @@ class LocalStore:
                     memory_type text not null,
                     text text not null,
                     metadata_json text not null,
+                    project_path text,
                     created_at text not null
                 )
                 """
             )
+            columns = {
+                row["name"]
+                for row in conn.execute("pragma table_info(memory_index)").fetchall()
+            }
+            if "project_path" not in columns:
+                conn.execute("alter table memory_index add column project_path text")
+
             conn.execute(
                 """
                 create virtual table if not exists memory_fts using fts5(
@@ -170,20 +178,22 @@ class LocalStore:
         text: str,
         metadata: dict,
         created_at: str,
+        project_path: str | None = None,
     ) -> None:
         conn = self._connect()
         with conn:
             conn.execute(
                 """
                 insert into memory_index
-                    (id, source_path, title, memory_type, text, metadata_json, created_at)
-                values (?, ?, ?, ?, ?, ?, ?)
+                    (id, source_path, title, memory_type, text, metadata_json, project_path, created_at)
+                values (?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(id) do update set
                     source_path=excluded.source_path,
                     title=excluded.title,
                     memory_type=excluded.memory_type,
                     text=excluded.text,
                     metadata_json=excluded.metadata_json,
+                    project_path=excluded.project_path,
                     created_at=excluded.created_at
                 """,
                 (
@@ -193,6 +203,7 @@ class LocalStore:
                     memory_type,
                     text,
                     json.dumps(metadata, ensure_ascii=True),
+                    project_path,
                     created_at,
                 ),
             )
@@ -205,31 +216,56 @@ class LocalStore:
                 (chunk_id, title, text, source_path, memory_type),
             )
 
-    def keyword_search(self, query: str, limit: int = 8) -> list[dict]:
+    def keyword_search(
+        self,
+        query: str,
+        limit: int = 8,
+        *,
+        project_path: str | None = None,
+    ) -> list[dict]:
         if not query.strip():
             return []
+
+        project_clause = ""
+        params: list[object] = [query]
+        if project_path:
+            project_clause = "and (i.project_path = ? or i.project_path is null or i.project_path = '')"
+            params.append(project_path)
+        params.append(limit)
+
         with self._connect() as conn:
             try:
                 rows = conn.execute(
-                    """
-                    select id, title, text, source_path, memory_type,
+                    f"""
+                    select f.id, f.title, f.text, f.source_path, f.memory_type,
                            bm25(memory_fts) as score
-                    from memory_fts
+                    from memory_fts f
+                    join memory_index i on i.id = f.id
                     where memory_fts match ?
+                      {project_clause}
                     order by score
                     limit ?
                     """,
-                    (query, limit),
+                    params,
                 ).fetchall()
             except sqlite3.OperationalError:
+                like_params: list[object] = [f"%{query}%", f"%{query}%"]
+                fallback_clause = ""
+                if project_path:
+                    fallback_clause = (
+                        "and (project_path = ? or project_path is null or project_path = '')"
+                    )
+                    like_params.append(project_path)
+                like_params.append(limit)
                 rows = conn.execute(
-                    """
+                    f"""
                     select id, title, text, source_path, memory_type, 0.0 as score
-                    from memory_fts
-                    where title like ? or text like ?
+                    from memory_index
+                    where (title like ? or text like ?)
+                      {fallback_clause}
                     limit ?
                     """,
-                    (f"%{query}%", f"%{query}%", limit),
+                    like_params,
                 ).fetchall()
         return [dict(row) for row in rows]
 
