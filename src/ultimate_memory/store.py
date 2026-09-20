@@ -480,6 +480,51 @@ class LocalStore:
 
         return [self._row_to_atom(row) for row in rows[:limit]]
 
+    def dialogue_neighbors(
+        self,
+        session_id: str,
+        dia_id: str,
+        *,
+        radius: int = 1,
+        project_path: str | None = None,
+    ) -> list[AtomicMemory]:
+        """Return nearby dialogue-turn atoms from the same session."""
+        match = re.fullmatch(r"(D\\d+):(\\d+)", dia_id.strip())
+        if not match or radius < 1:
+            return []
+        prefix, number_text = match.groups()
+        number = int(number_text)
+        wanted = [
+            f"{prefix}:{index}"
+            for index in range(max(1, number - radius), number + radius + 1)
+            if index != number
+        ]
+        if not wanted:
+            return []
+        placeholders = ",".join("?" for _ in wanted)
+        clauses = [
+            "json_extract(metadata_json, '$.session_id') = ?",
+            f"json_extract(metadata_json, '$.dia_id') in ({placeholders})",
+            "valid_until is null",
+            "superseded_by is null",
+        ]
+        params: list[object] = [session_id, *wanted]
+        if project_path:
+            clauses.append("(project_path = ? or project_path is null or project_path = '')")
+            params.append(project_path)
+        sql = f"""
+            select * from memory_atoms
+            where {' and '.join(clauses)}
+            order by created_at asc
+        """
+        with self._connect() as conn:
+            try:
+                rows = conn.execute(sql, params).fetchall()
+            except sqlite3.OperationalError:
+                return []
+        by_dia = {str(self._row_to_atom(row).metadata.get('dia_id')): self._row_to_atom(row) for row in rows}
+        return [by_dia[item] for item in wanted if item in by_dia]
+
     def find_duplicate_atom(self, atom: AtomicMemory) -> AtomicMemory | None:
         with self._connect() as conn:
             row = conn.execute(
