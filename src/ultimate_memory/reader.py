@@ -22,6 +22,18 @@ _YES_NO = re.compile(
     r"^(?:is|are|was|were|do|does|did|has|have|had|can|could|would|will|should|may|might)\b",
     re.I,
 )
+_TEMPORAL = re.compile(
+    r"\bwhen\b|\bwhat\s+(?:date|year|month|day)\b|"
+    r"\bhow\s+long\b|\bhow\s+many\s+(?:years?|months?|weeks?|days?)\b",
+    re.I,
+)
+_DISTRIBUTED = re.compile(
+    r"\bboth\b|\ball\b|"
+    r"\b(?:what|which)\s+[a-z]+s\b.*\b(?:has|have|did|does|are|were)\b|"
+    r"\bwhere\s+has\s+.+?\s+(?:camped|traveled|travelled|visited|stayed|lived)\b|"
+    r"\bwhat\s+does\s+.+?\s+(?:offer|provide|include|do\s+to)\b",
+    re.I,
+)
 
 
 def reader_model_name() -> str:
@@ -65,10 +77,17 @@ class ExtractiveReader:
         if not trimmed:
             return ""
 
-        # Extractive SQuAD readers cannot faithfully synthesize yes/no answers.
-        # Keep the deterministic fallback for that answer shape.
-        if _YES_NO.match(question.strip()):
-            return synthesize_answer(question, contexts)
+        # Span readers cannot faithfully synthesize yes/no, temporal metadata,
+        # or answers distributed across multiple memories. Route those shapes
+        # through the deterministic structured reasoner first.
+        if (
+            _YES_NO.match(question.strip())
+            or _TEMPORAL.search(question)
+            or _DISTRIBUTED.search(question)
+        ):
+            structured = synthesize_answer(question, contexts)
+            if structured:
+                return structured
 
         self._ensure_loaded()
         payloads = [{"question": question, "context": text} for text in trimmed]
