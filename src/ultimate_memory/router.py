@@ -44,6 +44,7 @@ from .hops import (
     MAX_HOP_SEARCHES,
     MULTI_HOP_SEARCH_BUDGET,
     build_hop_queries,
+    evidence_target_hits,
     extract_hop_entities,
     merge_contexts,
     normalize_entity,
@@ -212,12 +213,13 @@ class MemoryRouter:
         hop_entities: list[str] = list(frontier)
         hop_searches: list[dict] = []
         depth = 0
+        effective_hop_depth = plan.hop_depth
         hop_budget = max(
             max_hop_searches,
             min(MULTI_HOP_SEARCH_BUDGET, max_hop_searches + max(plan.hop_depth - 1, 0) * 2),
         )
 
-        while frontier and depth < plan.hop_depth and len(hop_searches) < hop_budget:
+        while frontier and depth < effective_hop_depth and len(hop_searches) < hop_budget:
             remaining = hop_budget - len(hop_searches)
             queries = build_hop_queries(
                 question,
@@ -267,7 +269,27 @@ class MemoryRouter:
                 if len(hop_searches) >= hop_budget:
                     break
 
-            frontier = list(dict.fromkeys(next_frontier))
+            next_frontier = list(dict.fromkeys(next_frontier))
+
+            # Query plans are intentionally conservative. If a nominally
+            # single-hop query discovers a new bridge entity at hop 1, and the
+            # evidence still does not contain the question's answer-bearing
+            # target terms, permit one extra traversal. This is a generic
+            # evidence-completion rule rather than a benchmark category hint.
+            if (
+                depth == 0
+                and effective_hop_depth == 1
+                and next_frontier
+                and evidence_target_hits(
+                    question,
+                    [item for hop in hop_searches for item in hop["search"].get("results", [])],
+                    entities=plan.entities,
+                ) == 0
+            ):
+                effective_hop_depth = 2
+                hop_budget = max(hop_budget, min(MULTI_HOP_SEARCH_BUDGET, max_hop_searches + 2))
+
+            frontier = next_frontier
             depth += 1
 
         rich_contexts = merge_contexts(rich_contexts, [])
@@ -311,6 +333,7 @@ class MemoryRouter:
             "contexts_used": context_texts,
             "search": search_result,
             "query_plan": plan.model_dump(),
+            "effective_hop_depth": effective_hop_depth,
             "hop_entities": list(dict.fromkeys(hop_entities)),
             "hop_searches": hop_searches,
             "aggregated": None,
