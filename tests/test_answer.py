@@ -256,3 +256,21 @@ def test_list_question_combines_distributed_evidence():
     answer = synthesize_answer("Which cities has Jon visited?", contexts)
     assert "Paris" in answer
     assert "Rome" in answer
+
+
+def test_word_number_duration_is_preferred():
+    contexts = [
+        {"text": "Caroline: I've had this group of friends for four years now.", "score": 0.9},
+        {"text": "---\nsession_date: 7 May 2023\n---\nCaroline: We met up recently.", "score": 0.5},
+    ]
+    answer = synthesize_answer("How long has Caroline had this group of friends?", contexts)
+    assert "four years" in answer.lower()
+
+
+def test_greeting_only_candidate_is_penalized():
+    contexts = [
+        {"text": "Gina: Wow!", "score": 1.0},
+        {"text": "Gina: Dance feels magical to me.", "score": 0.8},
+    ]
+    answer = synthesize_answer("How does Gina describe the feeling that dance brings?", contexts)
+    assert "magical" in answer.lower()
