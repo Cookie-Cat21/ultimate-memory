@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import logging
 import re
 from datetime import UTC, datetime
@@ -23,6 +24,7 @@ from .chunking import chunk_text
 from .chain import rank_evidence_chain
 from .claims import ensure_claim_metadata, structured_conflict_score
 from .config import Settings, load_settings
+from .context_compiler import compile_context_packet
 from .dates import parse_loose_date, resolve_relative_dates
 from .extraction import (
     extract_from_transcript,
@@ -33,6 +35,7 @@ from .extraction import (
 from .models import (
     AtomicMemory,
     AuditEvent,
+    CompiledMemory,
     MemoryChunk,
     MemoryType,
     ReflectionPayload,
@@ -49,8 +52,9 @@ from .hops import (
     normalize_entity,
 )
 from .llm_answer import use_llm_from_env
+from .local_semantic import LocalSemanticIndex, enabled as local_semantic_enabled
 from .planner import plan_query
-from .ranking import rerank_candidates
+from .ranking import filter_entity_scoped_results, rerank_candidates
 from .store import LocalStore
 
 logger = logging.getLogger(__name__)
@@ -88,6 +92,7 @@ class MemoryRouter:
         self.graph = GraphAdapter(self.settings.neo4j)
         self._vector_ready_cache = False
         self._graph_ready_cache = False
+        self._local_semantic = LocalSemanticIndex(self.vector.embed)
 
     @property
     def _vector_ready(self) -> bool:
@@ -174,7 +179,13 @@ class MemoryRouter:
             if token.lower() not in stop and len(token) > 2
         ]
         dense_query = " ".join(dense_terms[:10]) or question
-        search_queries = list(dict.fromkeys([dense_query, question, *plan.expansions]))
+        expanded_queries = [
+            f"{dense_query} {expansion}".strip()
+            for expansion in plan.expansions
+        ]
+        search_queries = list(
+            dict.fromkeys([dense_query, question, *expanded_queries])
+        )
 
         rich_contexts: list[dict] = []
         search_result: dict = {"results": []}
@@ -201,13 +212,85 @@ class MemoryRouter:
             )
             rich_contexts.extend(item for item in typed["results"] if item.get("text"))
 
+        # Direct and temporal questions should stay attached to the named
+        # subject. Multi-hop questions deliberately skip this hard gate because
+        # they must traverse bridge entities.
+        if not plan.requires_bridge and plan.entities:
+            rich_contexts = filter_entity_scoped_results(
+                rich_contexts,
+                plan.entities,
+                min_matches=2,
+            )
+
+        # Conversation adjacency is evidence: a retrieved question/request turn
+        # is frequently answered by the immediately preceding or following turn.
+        neighbor_seen: set[str] = {
+            str(item.get("id") or item.get("source_path") or "")
+            for item in rich_contexts
+        }
+        for anchor in list(rich_contexts[: max(limit, 8)]):
+            provenance = anchor.get("provenance") or {}
+            session_id = str(provenance.get("session_id") or "")
+            dia_id = str(provenance.get("dia_id") or "")
+            if not session_id or not dia_id:
+                continue
+            for neighbor in self.store.neighboring_turn_atoms(
+                session_id,
+                dia_id,
+                radius=1,
+                project_path=project_path,
+            ):
+                if neighbor.id in neighbor_seen:
+                    continue
+                neighbor_result = self._atom_to_search_result(
+                    neighbor,
+                    score=max(float(anchor.get("score") or 0.0) - 0.04, 0.45),
+                ).model_dump()
+                nprov = dict(neighbor_result.get("provenance") or {})
+                nprov["conversation_neighbor"] = True
+                nprov["neighbor_of"] = dia_id
+                neighbor_result["provenance"] = nprov
+                rich_contexts.append(neighbor_result)
+                neighbor_seen.add(neighbor.id)
+
+                anchor_text = str(anchor.get("text") or "").strip()
+                if "?" in anchor_text or "?" in neighbor.text:
+                    window_id = f"window:{session_id}:{dia_id}:{neighbor.metadata.get('dia_id', '')}"
+                    if window_id not in neighbor_seen:
+                        rich_contexts.append(
+                            {
+                                "id": window_id,
+                                "title": "conversation evidence window",
+                                "text": f"{anchor_text}\n{neighbor.text}",
+                                "source_path": window_id,
+                                "memory_type": "fact",
+                                "score": min(
+                                    float(anchor.get("score") or 0.0) + 0.03,
+                                    1.25,
+                                ),
+                                "provenance": {
+                                    "source": "conversation-window",
+                                    "conversation_neighbor": True,
+                                    "session_id": session_id,
+                                    "anchor_dia_id": dia_id,
+                                    "neighbor_dia_id": neighbor.metadata.get("dia_id"),
+                                    "project_path": project_path,
+                                },
+                            }
+                        )
+                        neighbor_seen.add(window_id)
+
         initial_results = search_result.get("results") or []
         seen_entity_keys = {normalize_entity(entity) for entity in plan.entities}
-        frontier = extract_hop_entities(
-            question,
-            initial_results,
-            exclude=None,
-            strict=plan.hop_depth > 1,
+        frontier = (
+            extract_hop_entities(
+                question,
+                initial_results,
+                exclude=None,
+                strict=True,
+            )
+            if plan.requires_bridge
+            else []
         )
         hop_entities: list[str] = list(frontier)
         hop_searches: list[dict] = []
@@ -271,11 +354,27 @@ class MemoryRouter:
             depth += 1
 
         rich_contexts = merge_contexts(rich_contexts, [])
-        if plan.kind == "multi_hop":
+        if plan.requires_bridge:
             rich_contexts = rank_evidence_chain(question, rich_contexts)
         else:
             rich_contexts.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
-        rich_contexts = rich_contexts[: max(limit * 3, 18)]
+
+        if plan.multi_evidence and not plan.requires_bridge:
+            context_budget = 20000
+            max_per_source = 3
+        elif plan.requires_bridge:
+            context_budget = 18000
+            max_per_source = 8
+        else:
+            context_budget = 12000
+            max_per_source = 5
+
+        rich_contexts = compile_context_packet(
+            rich_contexts,
+            max_chars=context_budget,
+            max_items=max(limit * 3, 18),
+            max_per_source=max_per_source,
+        )
 
         use_local_llm = use_llm_from_env() if use_llm is None else use_llm
         context_texts = [str(item.get("text") or "") for item in rich_contexts if item.get("text")]
@@ -309,6 +408,8 @@ class MemoryRouter:
             "answer": answer_text,
             "f1_text": f1_ready_text(answer_text),
             "contexts_used": context_texts,
+            "context_chars": sum(len(text) for text in context_texts),
+            "context_items": len(context_texts),
             "search": search_result,
             "query_plan": plan.model_dump(),
             "hop_entities": list(dict.fromkeys(hop_entities)),
@@ -329,6 +430,7 @@ class MemoryRouter:
     ) -> dict:
         actual_limit = limit or self.settings.retrieval.default_limit
         self.store.refresh_salience(limit=200)
+        query_plan = plan_query(query, as_of=as_of)
 
         temporal_query = as_of is None and is_temporal_query(query)
         if temporal_query:
@@ -346,19 +448,38 @@ class MemoryRouter:
             ) if self._vector_ready else []
 
         def _keyword():
-            rows = self.store.keyword_search(query, actual_limit)
-            return [
-                SearchResult(
-                    id=row["id"],
-                    title=row["title"],
-                    text=row["text"],
-                    source_path=row["source_path"],
-                    memory_type=row["memory_type"],
-                    score=self._keyword_score(query, row["text"]),
-                    provenance={"source": "sqlite-fts"},
+            rows = self.store.keyword_search(
+                query,
+                actual_limit,
+                project_path=project_path,
+            )
+            output: list[SearchResult] = []
+            for row in rows:
+                try:
+                    metadata = json.loads(row.get("metadata_json") or "{}")
+                except (TypeError, json.JSONDecodeError):
+                    metadata = {}
+                output.append(
+                    SearchResult(
+                        id=row["id"],
+                        title=row["title"],
+                        text=row["text"],
+                        source_path=row["source_path"],
+                        memory_type=row["memory_type"],
+                        score=self._keyword_score(query, row["text"]),
+                        provenance={
+                            "source": "sqlite-fts",
+                            "metadata": metadata,
+                            "session_id": metadata.get("session_id"),
+                            "question_speaker": metadata.get("question_speaker"),
+                            "answer_speaker": metadata.get("answer_speaker"),
+                            "pair": bool(metadata.get("pair")),
+                            "created_at": row.get("created_at"),
+                            "project_path": row.get("project_path"),
+                        },
+                    )
                 )
-                for row in rows
-            ]
+            return output
 
         def _basic():
             return self.basic.search(query, actual_limit, include_cli=False)
@@ -377,6 +498,26 @@ class MemoryRouter:
         def _graph():
             return self.graph.query(query, depth=1) if self._graph_ready else []
 
+        def _local_semantic():
+            if self._vector_ready or not local_semantic_enabled():
+                return []
+            atoms = self.store.list_active_atoms_for_entities(
+                query_plan.entities,
+                project_path=project_path,
+                limit=max(actual_limit * 12, 120)
+                if query_plan.entities
+                else max(actual_limit * 20, 160),
+                as_of=as_of,
+            )
+            if memory_types:
+                allowed = set(memory_types)
+                atoms = [atom for atom in atoms if atom.memory_type.value in allowed]
+            return self._local_semantic.search(
+                query,
+                atoms,
+                limit=max(actual_limit * 2, 20),
+            )
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
             fv = pool.submit(_vector)
             fb = pool.submit(_basic)
@@ -387,14 +528,28 @@ class MemoryRouter:
             vector_results: list[SearchResult] = fv.result()
             bm_results: list[SearchResult] = fb.result()
             graph_hits: list[dict] = fg.result()
+            semantic_results = _local_semantic()
 
         results = self._rrf_rank(
             [vector_results, keyword_results, bm_results, atom_results],
             memory_types=memory_types,
             limit=actual_limit * 2,
         )
+
+        # Local semantic retrieval is a recall supplement, not an equal RRF voter.
+        # This preserves strong lexical/direct evidence while still allowing
+        # paraphrased candidates to enter the final generic reranker.
+        existing_keys = {result.source_path or result.id for result in results}
+        for semantic in semantic_results:
+            key = semantic.source_path or semantic.id
+            if key in existing_keys:
+                continue
+            semantic.score *= 0.82
+            semantic.provenance["supplemental_semantic"] = True
+            results.append(semantic)
+            existing_keys.add(key)
+
         results = self._apply_salience_rerank(results)
-        query_plan = plan_query(query, as_of=as_of)
         results = rerank_candidates(query, results, query_plan)[:actual_limit]
 
         touched = [
@@ -415,6 +570,7 @@ class MemoryRouter:
             "results": [result.model_dump() for result in results],
             "graph_hits": graph_hits[:5],
             "atoms_considered": len(atom_results),
+            "semantic_hits": len(semantic_results),
             "query_plan": query_plan.model_dump(),
         }
 
@@ -605,6 +761,86 @@ class MemoryRouter:
             "qdrant_chunks": vector_count,
             "graph_chunks": graph_count,
             "reflection": reflection_result,
+        }
+
+    def ingest_compiled_memories(
+        self,
+        memories: list[CompiledMemory],
+        *,
+        session_id: str,
+        project_path: str | None = None,
+        event_time: str | None = None,
+        compiler: str = "external",
+    ) -> dict:
+        """Commit externally compiled atomic memories while preserving evidence links.
+
+        The compiler is optional; raw logs/turns remain the source of truth. This
+        method exists so local or hosted models can improve proposition quality
+        without coupling the core memory engine to any one LLM provider.
+        """
+        created = 0
+        duplicates = 0
+        superseded = 0
+        atom_ids: list[str] = []
+
+        for index, item in enumerate(memories):
+            text = item.text.strip()
+            if not text:
+                continue
+            source_refs = [
+                f"session:{session_id}:dia:{dia_id}"
+                for dia_id in item.source_dia_ids
+                if dia_id
+            ] or [f"session:{session_id}"]
+            metadata = {
+                **item.metadata,
+                "compiled": True,
+                "compiler": compiler,
+                "compiler_confidence": item.confidence,
+                "session_id": session_id,
+                "source_dia_ids": item.source_dia_ids,
+            }
+            atom = AtomicMemory(
+                id=f"atom:compiled:{safe_slug(session_id, 'session')}:{index}",
+                text=text,
+                memory_type=item.memory_type,
+                project_path=project_path,
+                entities=list(dict.fromkeys(item.entities)),
+                source_refs=source_refs,
+                valid_from=item.valid_from or event_time or now_iso(),
+                event_time=event_time,
+                importance=min(1.0, max(0.45, item.confidence)),
+                metadata=metadata,
+            )
+            outcome = self._ingest_atom(atom)
+            status = outcome.get("status")
+            if status == "created":
+                created += 1
+                atom_ids.append(atom.id)
+            elif status == "duplicate":
+                duplicates += 1
+            superseded += len(outcome.get("superseded") or [])
+
+        self.store.write_audit(
+            AuditEvent(
+                action="ingest_compiled_memories",
+                payload={
+                    "session_id": session_id,
+                    "compiler": compiler,
+                    "received": len(memories),
+                    "created": created,
+                    "duplicates": duplicates,
+                    "superseded": superseded,
+                },
+                source_refs=[f"session:{session_id}"],
+            )
+        )
+        return {
+            "received": len(memories),
+            "created": created,
+            "duplicates": duplicates,
+            "superseded": superseded,
+            "atom_ids": atom_ids,
         }
 
     def reflect(
@@ -907,9 +1143,11 @@ class MemoryRouter:
         stamp = event_time or now_iso()
         chunks: list[MemoryChunk] = []
         atoms: list[AtomicMemory] = []
+        resolved_turns: list[tuple[object, str]] = []
 
         for turn in turns:
             resolved = resolve_relative_dates(turn.utterance, anchor)
+            resolved_turns.append((turn, resolved))
             line_text = f"[{turn.dia_id}] {turn.speaker}: {resolved}"
             informative = len(resolved.strip()) >= 20
             chunks.append(
@@ -948,6 +1186,55 @@ class MemoryRouter:
                         },
                     )
                 )
+
+        # Index adjacent conversational pairs so question/request terms and
+        # their response live in the same searchable evidence unit. This improves
+        # discourse-aware recall without inventing or summarizing any facts.
+        for index in range(len(resolved_turns) - 1):
+            first, first_text = resolved_turns[index]
+            second, second_text = resolved_turns[index + 1]
+            first_dia = getattr(first, "dia_id", "")
+            second_dia = getattr(second, "dia_id", "")
+            first_speaker = getattr(first, "speaker", "")
+            second_speaker = getattr(second, "speaker", "")
+            is_query_like = (
+                "?" in first_text
+                or bool(
+                    re.search(
+                        r"^(?:can|could|would|will|please|tell|show|explain|describe|"
+                        r"what|when|where|who|why|how)\b",
+                        first_text.strip(),
+                        re.I,
+                    )
+                )
+            )
+            if not is_query_like:
+                continue
+            pair_text = (
+                f"[{first_dia}] {first_speaker}: {first_text}\n"
+                f"[{second_dia}] {second_speaker}: {second_text}"
+            )
+            chunks.append(
+                MemoryChunk(
+                    id=f"pair:{safe_session}:{first_dia}:{second_dia}",
+                    text=pair_text,
+                    source_path=str(log_path),
+                    title=f"{first_speaker} → {second_speaker} [{first_dia}/{second_dia}]",
+                    memory_type=MemoryType.FACT,
+                    project_path=project_path,
+                    tags=[*tags, "conversation-pair"],
+                    metadata={
+                        "client": client,
+                        "session_id": session_id,
+                        "pair": True,
+                        "question_dia_id": first_dia,
+                        "answer_dia_id": second_dia,
+                        "question_speaker": first_speaker,
+                        "answer_speaker": second_speaker,
+                        "event_time": event_time,
+                    },
+                )
+            )
 
         return chunks, atoms
 
@@ -1123,6 +1410,14 @@ class MemoryRouter:
                 "entities": atom.entities,
                 "project_path": atom.project_path,
                 "claim": atom.metadata.get("claim"),
+                "compiled": bool(atom.metadata.get("compiled")),
+                "compiler_confidence": atom.metadata.get("compiler_confidence"),
+                "source_dia_ids": atom.metadata.get("source_dia_ids"),
+                "dia_id": atom.metadata.get("dia_id"),
+                "speaker": atom.metadata.get("speaker"),
+                "session_id": atom.metadata.get("session_id"),
+                "direct_turn": bool(atom.metadata.get("dia_id")),
+                "metadata": atom.metadata,
             },
         )
 

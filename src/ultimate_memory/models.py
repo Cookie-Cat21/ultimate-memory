@@ -61,6 +61,18 @@ class ReflectionPayload(BaseModel):
     open_questions: list[str] = Field(default_factory=list)
 
 
+class CompiledMemory(BaseModel):
+    """Evidence-linked atomic memory produced by an optional external compiler."""
+
+    text: str
+    memory_type: MemoryType = MemoryType.FACT
+    entities: list[str] = Field(default_factory=list)
+    source_dia_ids: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    valid_from: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class AtomicMemory(BaseModel):
     """Typed, bi-temporal, salience-tracked memory unit."""
 

@@ -22,6 +22,8 @@ class QueryPlan(BaseModel):
     memory_types: list[str] = Field(default_factory=list)
     expansions: list[str] = Field(default_factory=list)
     signals: list[str] = Field(default_factory=list)
+    multi_evidence: bool = False
+    requires_bridge: bool = False
 
 
 _CAPITALIZED = re.compile(r"\b([A-Z][a-zA-Z0-9_.-]*(?:\s+[A-Z][a-zA-Z0-9_.-]*){0,3})\b")
@@ -37,7 +39,8 @@ _TEMPORAL_QUESTION_RE = re.compile(
     r"\bhow\s+many\s+(?:years?|months?|weeks?|days?|hours?)\b|"
     r"\b(?:years?|months?|weeks?|days?|hours?)\s+ago\b|"
     r"\b(?:since|until|during)\b|"
-    r"\b(?:before|after|earlier|later|previously|formerly|prior)\b"
+    r"\b(?:before|after|earlier|later|previously|formerly|prior)\b|"
+    r"\b(?:recent|recently|latest|newest|most\s+recent)\b"
 )
 
 _COLLECTIVE_RE = re.compile(
@@ -54,6 +57,19 @@ _COLLECTIVE_RE = re.compile(
     re.I,
 )
 
+_LIST_OR_SET_RE = re.compile(
+    r"\bwhich\s+(?!(?:does|has|is|was|this)\b)(?:[a-z]+s|cities|places|countries|states|books|games|activities|items|things|ways|types|kinds)\b|"
+    r"\bwhat\s+(?!(?:does|has|is|was|this)\b)(?:[a-z]+s|cities|places|countries|states|books|games|activities|items|things|ways|types|kinds)\b|"
+    r"\bwhat\s+does\s+.+?\s+(?:offer|provide|include|do\s+to)\b|"
+    r"\b(?:all|multiple|several)\s+(?:[a-z]+s|cities|places|books|activities|items|things|ways|types)\b|"
+    r"\bwhere\s+has\s+.+?\s+(?:camped|traveled|travelled|visited|stayed|lived)\b|"
+    r"\bin\s+what\s+ways\b|"
+    r"\bhow\s+(?:does|is|has)\s+.+?\s+(?:participat|involv|contribut)\w*\b|"
+    r"\bwhat\s+do\s+.+?'s\s+[a-z]+s\s+(?:like|enjoy|prefer|do)\b|"
+    r"\bwhat\s+.+?\s+has\s+.+?\s+(?:done|read|visited|attended|participated|painted|tried|used)\b",
+    re.I,
+)
+
 
 def _is_temporal_question(question: str) -> bool:
     return bool(_TEMPORAL_QUESTION_RE.search(question.lower()))
@@ -61,7 +77,13 @@ def _is_temporal_question(question: str) -> bool:
 
 def _is_collective_multi_hop(question: str, entities: list[str]) -> bool:
     lower = question.lower()
-    if _COLLECTIVE_RE.search(lower):
+    if _COLLECTIVE_RE.search(lower) or _LIST_OR_SET_RE.search(lower):
+        return True
+    if re.search(
+        r"\bhow\s+long\b.*\b(?:take|took|until|from|between|before|after)\b|"
+        r"\b(?:duration|elapsed|time\s+between)\b",
+        lower,
+    ):
         return True
     if len(entities) >= 2 and re.search(r"\b(?:and|versus|vs\.?|compared?\s+to)\b", lower):
         return True
@@ -85,6 +107,20 @@ def _entities(question: str) -> list[str]:
     return found[:8]
 
 
+def _requires_bridge(question: str) -> bool:
+    """Whether answering requires traversing an unnamed relationship chain."""
+    lower = question.lower()
+    possessives = len(re.findall(r"\b[\w.-]+'s\b", question))
+    relation_hits = sum(
+        1 for word in _RELATION_WORDS
+        if re.search(rf"\b{re.escape(word)}\b", lower)
+    )
+    chained_of = len(
+        re.findall(r"\bof\s+(?:the\s+)?(?:\w+\s+){0,2}(?:of|for|at)\b", lower)
+    )
+    return possessives >= 2 or chained_of > 0 or (possessives >= 1 and relation_hits >= 1)
+
+
 def _hop_depth(question: str, entities: list[str] | None = None) -> int:
     lower = question.lower()
     entities = entities or _entities(question)
@@ -104,7 +140,7 @@ def _hop_depth(question: str, entities: list[str] | None = None) -> int:
 def _memory_types(question: str) -> list[str]:
     lower = question.lower()
     types: list[str] = []
-    if re.search(r"\bprefer|preference|always|never|style|likes?\b", lower):
+    if re.search(r"\bprefer|preference|favorite|favourite|always|never|style|likes?\b", lower):
         types.append("preference")
     if re.search(r"\bdecision|decide|decided|chose|chosen|why did we|why was\b", lower):
         types.append("decision")
@@ -123,16 +159,34 @@ def _expansions(question: str) -> list[str]:
         expansions.append("work job employer role")
     if re.search(r"\blive|lives|location|based|where\b", lower):
         expansions.append("location lives based moved")
-    if re.search(r"\bprefer|preference|likes?\b", lower):
-        expansions.append("preference prefer likes")
+    if re.search(r"\bprefer|preference|favorite|favourite|likes?\b", lower):
+        expansions.append("preference prefer favorite favourite likes")
     if re.search(r"\bdecision|decide|chose|chosen|why\b", lower):
         expansions.append("decision chose reason rationale")
     if re.search(r"\bhow do|how to|steps?|procedure|process\b", lower):
         expansions.append("procedure steps process")
     if re.search(r"\bbefore|previous|formerly|used to|prior\b", lower):
         expansions.append("previous formerly before historical")
+    if re.search(r"\bvisit|visited|trip|travel|cities|places\b", lower):
+        expansions.append("visited travel trip city place")
+    if re.search(r"\boffer|offers|offering|provide|provides|services\b", lower):
+        expansions.append("offer provides services classes workshops training")
+    if re.search(r"\brelationship|dating|married|single|partner\b", lower):
+        expansions.append("relationship status dating married single partner")
+    if re.search(r"\bidentity|gender|transgender|nonbinary|non-binary\b", lower):
+        expansions.append("identity gender transgender nonbinary")
+    if re.search(r"\bcareer|profession|education|educaton|field|study|degree\b", lower):
+        expansions.append("career education study degree certification profession")
+    if re.search(r"\bactivities?|hobbies?|destress|de-stress|relax|leisure\b", lower):
+        expansions.append("activity hobby recreation leisure destress relax")
+    if re.search(r"\bevents?|participat|community|involvement|attend|joined?\b", lower):
+        expansions.append("event attended participated joined involvement community")
+    if re.search(r"\bpaint|painting|artwork|art\b", lower):
+        expansions.append("painting artwork canvas subject landscape")
     if _is_temporal_question(question):
         expansions.append("date year month day when duration time")
+    if re.search(r"\bhow\s+long\b|\bduration\b|\belapsed\b", lower):
+        expansions.append("started began finished completed opened duration elapsed")
     return list(dict.fromkeys(expansions))
 
 
@@ -150,7 +204,10 @@ def plan_query(question: str, *, as_of: str | None = None) -> QueryPlan:
         temporal_mode = "historical"
         include_superseded = True
         signals.append("historical_language")
-    elif re.search(r"\b(now|current|currently|today|latest)\b", lower):
+    elif re.search(
+        r"\b(now|current|currently|today|latest|recent|recently|newest|most\s+recent)\b",
+        lower,
+    ):
         temporal_mode = "current"
         include_superseded = False
         signals.append("current_language")
@@ -159,12 +216,14 @@ def plan_query(question: str, *, as_of: str | None = None) -> QueryPlan:
         include_superseded = False
 
     entities = _entities(question)
+    multi_evidence = _is_collective_multi_hop(question, entities)
+    requires_bridge = _requires_bridge(question)
     depth = _hop_depth(question, entities)
     temporal_question = _is_temporal_question(question)
     if depth > 1:
         kind = "multi_hop"
         signals.append(f"relation_chain_depth_{depth}")
-    elif temporal_mode in {"historical", "as_of"} or temporal_question:
+    elif temporal_mode != "unspecified" or temporal_question:
         kind = "temporal"
     else:
         kind = "single_hop"
@@ -178,4 +237,6 @@ def plan_query(question: str, *, as_of: str | None = None) -> QueryPlan:
         memory_types=_memory_types(question),
         expansions=_expansions(question),
         signals=signals,
+        multi_evidence=multi_evidence,
+        requires_bridge=requires_bridge,
     )

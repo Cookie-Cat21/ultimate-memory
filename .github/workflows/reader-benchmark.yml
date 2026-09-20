@@ -4,12 +4,17 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   reader-benchmark:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       TOKENIZERS_PARALLELISM: "false"
+      ULTIMATE_MEMORY_LOCAL_SEMANTIC: "1"
     steps:
       - uses: actions/checkout@v4
       - name: Install uv

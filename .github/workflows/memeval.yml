@@ -1,0 +1,92 @@
+name: Independent MemEval
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: "Number of LoCoMo conversations"
+        required: true
+        default: "1"
+      with_judge:
+        description: "Run GPT judge in addition to token F1"
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: independent-memeval
+  cancel-in-progress: true
+
+jobs:
+  memeval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      LLM_MODEL: gpt-4.1-mini
+      EMBEDDING_MODEL: text-embedding-3-small
+    steps:
+      - name: Check API key
+        id: api_key
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::notice::OPENAI_API_KEY Actions secret is not configured; independent MemEval is skipped."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout Ultimate Memory
+        if: steps.api_key.outputs.available == 'true'
+        uses: actions/checkout@v4
+        with:
+          path: ultimate-memory
+
+      - name: Checkout Prosus MemEval
+        if: steps.api_key.outputs.available == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ProsusAI/MemEval
+          path: MemEval
+
+      - name: Install uv
+        if: steps.api_key.outputs.available == 'true'
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install MemEval and Ultimate Memory
+        if: steps.api_key.outputs.available == 'true'
+        working-directory: MemEval
+        run: |
+          uv sync
+          uv pip install httpx
+          uv pip install -e ../ultimate-memory
+          cp ../ultimate-memory/integrations/memeval/ultimate_memory.py             src/agents_memory/systems/ultimate_memory.py
+
+      - name: Run fair head-to-head
+        if: steps.api_key.outputs.available == 'true'
+        working-directory: MemEval
+        shell: bash
+        run: |
+          SAMPLES="1"
+          EXTRA="--skip-judge"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SAMPLES="${{ inputs.samples }}"
+            if [ "${{ inputs.with_judge }}" = "true" ]; then
+              EXTRA=""
+            fi
+          fi
+          uv run python scripts/run_full_benchmark.py \
+            --systems ultimate_memory,propmem \
+            --num-samples "$SAMPLES" \
+            --llm-model "$LLM_MODEL" \
+            $EXTRA \
+            --output-dir benchmark-output
+
+      - name: Upload benchmark results
+        if: always() && steps.api_key.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: independent-memeval-results
+          path: MemEval/benchmark-output/
+          if-no-files-found: warn

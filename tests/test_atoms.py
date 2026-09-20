@@ -24,7 +24,7 @@ from ultimate_memory.config import (
     RetrievalConfig,
     Settings,
 )
-from ultimate_memory.models import AtomicMemory, MemoryType, ReflectionPayload
+from ultimate_memory.models import AtomicMemory, CompiledMemory, MemoryType, ReflectionPayload
 from ultimate_memory.router import MemoryRouter
 
 
@@ -289,3 +289,56 @@ class TestAtomLifecycle:
         groups = group_near_duplicates(atoms, threshold=0.5)
         assert len(groups) == 1
         assert {a.id for a in groups[0]} == {"1", "2"}
+
+
+def test_entity_scoped_atom_candidates(tmp_path):
+    router = MemoryRouter(make_settings(tmp_path))
+    router.store.upsert_atom(
+        AtomicMemory(
+            text="Caroline keeps a guinea pig named Clover.",
+            memory_type=MemoryType.FACT,
+            entities=["Caroline", "Clover"],
+            project_path="/project",
+        )
+    )
+    router.store.upsert_atom(
+        AtomicMemory(
+            text="Jon is opening a dance studio.",
+            memory_type=MemoryType.FACT,
+            entities=["Jon"],
+            project_path="/project",
+        )
+    )
+    candidates = router.store.list_active_atoms_for_entities(
+        ["Caroline"],
+        project_path="/project",
+        limit=10,
+    )
+    assert any("guinea pig" in atom.text for atom in candidates)
+    assert all("Jon" not in atom.text for atom in candidates)
+
+
+def test_ingest_compiled_memories_preserves_evidence_links(tmp_path):
+    router = MemoryRouter(make_settings(tmp_path))
+    result = router.ingest_compiled_memories(
+        [
+            CompiledMemory(
+                text="Caroline has a guinea pig named Clover.",
+                memory_type=MemoryType.FACT,
+                entities=["Caroline", "Clover"],
+                source_dia_ids=["D1:2"],
+                confidence=0.97,
+            )
+        ],
+        session_id="session_1",
+        project_path="/project",
+        event_time="2023-05-10T00:00:00",
+        compiler="test-compiler",
+    )
+    assert result["created"] == 1
+    atoms = router.list_atoms(query="guinea pig", project_path="/project", limit=5)
+    atom = atoms["atoms"][0]
+    assert atom["metadata"]["compiled"] is True
+    assert atom["metadata"]["compiler"] == "test-compiler"
+    assert atom["metadata"]["source_dia_ids"] == ["D1:2"]
+    assert atom["source_refs"] == ["session:session_1:dia:D1:2"]

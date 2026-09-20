@@ -80,7 +80,13 @@ _ARTICLES = frozenset({"a", "an", "the"})
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 _ENTITY_RE = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b")
 _DATE_PATTERNS: list[re.Pattern[str]] = [
-    # Day Month Year: 7 May 2023
+    # Day Month Year, with optional comma: 7 May 2023 / 7 May, 2023
+    re.compile(
+        r"\b\d{1,2}\s+"
+        r"(?:January|February|March|April|May|June|July|August|September|"
+        r"October|November|December)(?:,\s*|\s+)\d{4}\b",
+        re.I,
+    ),
     re.compile(
         r"\b\d{1,2}\s+"
         r"(?:January|February|March|April|May|June|July|August|September|"
@@ -112,7 +118,7 @@ _DATE_PATTERNS: list[re.Pattern[str]] = [
         r"October|November|December)\s+\d{4}\b",
         re.I,
     ),
-    re.compile(r"\b\d+\s+years?\s+ago\b", re.I),
+    re.compile(r"\b(?:a\s+few|several|\d+)\s+years?\s+ago\b", re.I),
     re.compile(r"\b(?:in|on|during)\s+(?:the\s+)?(?:year\s+)?((?:19|20)\d{2})\b", re.I),
     re.compile(r"\b(?:19|20)\d{2}\b"),
     re.compile(r"\b(?:last|next)\s+(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b", re.I),
@@ -122,13 +128,23 @@ _RELATIVE_ONLY_DATE_RE = re.compile(
     r"^(?:last|next|this)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
     r"week|weekend|month|year)$|"
     r"^(?:yesterday|today|tomorrow|recently|earlier|later)$|"
-    r"^(?:a few days ago|two days ago|2 days ago|last night)$",
+    r"^(?:a few days ago|a few years ago|several years ago|two days ago|2 days ago|last night)$",
     re.I,
 )
 
+_NUMBER_WORD = r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|a\s+few|several)"
 _DURATION_SPAN_RE = re.compile(
-    r"\b(\d+\s+years?(?:\s+ago)?|\d+\s+months?(?:\s+ago)?|\d+\s+weeks?(?:\s+ago)?|"
-    r"for\s+\d+\s+years?|\dover\s+\d+\s+years?)\b",
+    rf"\b((?:\d+|{_NUMBER_WORD})\s+years?(?:\s+ago)?|"
+    rf"(?:\d+|{_NUMBER_WORD})\s+months?(?:\s+ago)?|"
+    rf"(?:\d+|{_NUMBER_WORD})\s+weeks?(?:\s+ago)?|"
+    rf"(?:for|over)\s+(?:\d+|{_NUMBER_WORD})\s+(?:years?|months?|weeks?))\b",
+    re.I,
+)
+
+_GREETING_ONLY_RE = re.compile(
+    r"^(?:\[D\d+:\d+\]\s*)?(?:[A-Z][a-z]+\s*:\s*)?"
+    r"(?:hey|hi|hello|thanks(?:\s+a\s+bunch)?|thank\s+you|wow|great|awesome|nice|cool|sure|yep|yeah)"
+    r"(?:[\s,!.'-]+[A-Z][a-z]+)?[!?.]*$",
     re.I,
 )
 
@@ -158,11 +174,26 @@ _OCCUPATION_ANSWER_RE = re.compile(
 )
 _DIA_TURN_RE = re.compile(r"^\[D\d+:\d+\]")
 _IDENTITY_QUESTION_RE = re.compile(
-    r"\bidentity\b|\b(?:gender|transgender)\b|what is .+'s (?:identity|gender)",
+    r"\bwhat\s+is\s+.+?'s\s+(?:identity|gender)\b|"
+    r"\bwhat\s+(?:identity|gender)\s+(?:does|is|was)\b|"
+    r"\b(?:identify|identifies)\s+as\b|"
+    r"\bis\s+[A-Z][\w.-]*(?:\s+[A-Z][\w.-]*)?\s+"
+    r"(?:a\s+|an\s+)?(?:transgender|nonbinary|non-binary)\b",
     re.I,
 )
 _IDENTITY_PHRASE_RE = re.compile(
     r"\btransgender\b|\b(?:trans\s+)?woman\b|\b(?:trans\s+)?man\b|\bidentity\b",
+    re.I,
+)
+_EXPLICIT_IDENTITY_RE = re.compile(
+    r"\b(transgender\s+(?:woman|man)|trans\s+(?:woman|man)|nonbinary|non-binary)\b",
+    re.I,
+)
+_FAVORITE_VALUE_RE = re.compile(
+    r"\b(?:my|his|her|their|[A-Z][a-z]+'s)\s+"
+    r"(?:favorite|favourite)\s+[^.!?,:]{0,50}?\s+(?:is|are)\s+([^.!?,;]{1,70})|"
+    r"\b([^.!?,;]{1,50})\s+(?:is|are)\s+"
+    r"(?:my|his|her|their|[A-Z][a-z]+'s)\s+(?:favorite|favourite)\b",
     re.I,
 )
 
@@ -299,6 +330,42 @@ def _is_identity_question(question: str) -> bool:
     return bool(_IDENTITY_QUESTION_RE.search(question))
 
 
+def _favorite_subject(question: str) -> bool:
+    return bool(re.search(r"\bfavou?rite\b", question, re.I))
+
+
+def _precise_scalar_answer(question: str, normalized: list["_ContextItem"]) -> str | None:
+    """Return high-precision scalar values before generic span ranking."""
+    identity = _is_identity_question(question)
+    favorite = _favorite_subject(question)
+
+    if identity:
+        for item in normalized:
+            match = _EXPLICIT_IDENTITY_RE.search(item.text)
+            if match:
+                return match.group(1).strip()
+
+    if favorite:
+        q_words = _content_words(question)
+        entities = _question_entities(question)
+        candidates: list[tuple[float, str]] = []
+        for item in normalized:
+            for sentence in _split_sentences(item.text):
+                match = _FAVORITE_VALUE_RE.search(sentence)
+                if not match:
+                    continue
+                value = (match.group(1) or match.group(2) or "").strip(" .,:;-")
+                if not value:
+                    continue
+                score = _overlap_score(q_words, sentence, entities)
+                candidates.append((score, value))
+        if candidates:
+            candidates.sort(key=lambda pair: (pair[0], -len(pair[1])), reverse=True)
+            return candidates[0][1]
+
+    return None
+
+
 def _dialogue_turn_bonus(
     text: str,
     *,
@@ -375,6 +442,30 @@ def _extract_date_spans(sentence: str) -> list[str]:
     return spans
 
 
+def _display_date(span: str) -> str:
+    """Render ISO-style dates as compact human-readable dates."""
+    value = span.strip()
+    match = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})(?:[T ][^\s]+)?", value)
+    if match:
+        year, month, day = map(int, match.groups())
+        months = (
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        )
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return f"{day} {months[month - 1]} {year}"
+    match = re.fullmatch(r"(\d{4})-(\d{2})", value)
+    if match:
+        year, month = map(int, match.groups())
+        months = (
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        )
+        if 1 <= month <= 12:
+            return f"{months[month - 1]} {year}"
+    return value
+
+
 def _is_relative_only_date(span: str) -> bool:
     return bool(_RELATIVE_ONLY_DATE_RE.match(span.strip()))
 
@@ -432,6 +523,7 @@ class _ContextItem:
     memory_type: str = "note"
     provenance: dict[str, Any] | None = None
     score: float = 0.0
+    session_date: str | None = None
 
 
 @dataclass(frozen=True)
@@ -463,25 +555,381 @@ def _filter_context_text(text: str) -> str:
     return "\n".join(kept).strip()
 
 
+def _context_session_date(text: str, provenance: dict[str, Any] | None = None) -> str | None:
+    provenance = provenance or {}
+    for key in ("session_date", "event_time", "created_at"):
+        value = provenance.get(key)
+        if value:
+            spans = _extract_date_spans(str(value))
+            if spans:
+                return spans[0]
+            if str(value).strip():
+                return str(value).strip()
+    for line in text.splitlines()[:8]:
+        lower = line.strip().lower()
+        if lower.startswith(("session_date:", "created_at:", "event_time:", "date:")):
+            value = line.split(":", 1)[1].strip()
+            spans = _extract_date_spans(value)
+            return spans[0] if spans else value
+    return None
+
+
+def _is_list_question(question: str) -> bool:
+    lower = question.lower()
+    return bool(
+        re.search(
+            r"\bboth\b|\ball\b|\bin\s+what\s+ways\b|"
+            r"\bwhich\s+(?!(?:is|was|does|did|has|have)\b)[a-z]+s\b|"
+            r"\bwhat\s+(?!(?:is|was|does|did|has|have)\b)[a-z]+s\b|"
+            r"\bwhat\s+does\s+.+?\s+(?:offer|provide|include|do\s+to)\b|"
+            r"\bin\s+what\s+ways\b|"
+            r"\bwhat\s+do\s+.+?'s\s+[a-z]+s\s+(?:like|enjoy|prefer|do)\b|"
+            r"\bwhere\s+has\s+.+?\s+(?:camped|traveled|travelled|visited|stayed|lived)\b",
+            lower,
+        )
+    )
+
+
+def _clean_place_value(value: str) -> str:
+    value = value.strip(" ,.;:-")
+    value = re.sub(r"^(?:the)\s+", "", value, flags=re.I)
+    value = re.sub(
+        r"\s+(?:last|next|this)\s+"
+        r"(?:spring|summer|autumn|fall|winter|year|month|week|weekend|"
+        r"monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b.*$",
+        "",
+        value,
+        flags=re.I,
+    )
+    value = re.sub(r"\s+(?:a\s+few|several|\d+)\s+(?:days?|weeks?|months?|years?)\s+ago\b.*$", "", value, flags=re.I)
+    return value.strip(" ,.;:-")
+
+
+def _compact_list_values(question: str, sentence: str) -> list[str]:
+    """Extract compact candidate values from a relevant sentence.
+
+    This is deliberately schema/generic: it recognizes relation shapes rather
+    than benchmark entities or known answers.
+    """
+    lower_q = question.lower()
+    values: list[str] = []
+
+    # Quoted works/titles are high-precision list values.
+    if re.search(r"\bbooks?|titles?|movies?|films?|songs?|works?\b", lower_q):
+        values.extend(
+            match.group(1).strip()
+            for match in re.finditer(r'["“]([^"”]{2,90})["”]', sentence)
+        )
+
+    # Travel / location histories.
+    if re.search(r"\b(?:city|cities|place|places|state|states|country|countries|where)\b", lower_q):
+        for pattern in (
+            re.compile(
+                r"\b(?:visited|went|traveled|travelled|vacationed|camped|stayed|lived)"
+                r"\s+(?:in|at|to|near|on)?\s*(?:the\s+)?"
+                r"([a-z][a-z-]+(?:\s+[a-z][a-z-]+){0,2})",
+                re.I,
+            ),
+            re.compile(
+                r"\b(?:trip|vacation|camping)\s+(?:in|at|to|near|on)\s+"
+                r"(?:the\s+)?([a-z][a-z-]+(?:\s+[a-z][a-z-]+){0,2})",
+                re.I,
+            ),
+        ):
+            values.extend(
+                place
+                for match in pattern.finditer(sentence)
+                if (place := _clean_place_value(match.group(1)))
+            )
+
+    # Product/service/class offerings: capture coordinated objects after the verb.
+    if re.search(r"\b(?:offer|provide|include|services?|classes?|training|workshops?)\b", lower_q):
+        for match in re.finditer(
+            r"\b(?:offers?|provides?|includes?|has)\s+([^.!?]{3,140})",
+            sentence,
+            re.I,
+        ):
+            phrase = match.group(1)
+            phrase = re.split(r"\b(?:because|so that|which|where|when)\b", phrase, maxsplit=1, flags=re.I)[0]
+            values.extend(
+                part.strip(" ,.;:-")
+                for part in re.split(r",|\band\b|\bor\b", phrase, flags=re.I)
+                if 2 <= len(part.strip()) <= 80
+            )
+
+    # Generic "I do/read/paint/attend X and Y" histories. Use only when the
+    # question itself asks for a plural/set answer.
+    if re.search(r"\b(?:what|which)\s+[a-z]+s\b|\bwhat\s+.+?\s+has\b", lower_q):
+        for match in re.finditer(
+            r"\b(?:do|does|did|done|read|reads|painted|paints|attended|attends|"
+            r"participated\s+in|practiced|practises|practices|tried|uses?|enjoys?|likes?)\s+"
+            r"([^.!?]{2,120})",
+            sentence,
+            re.I,
+        ):
+            phrase = re.split(
+                r"\b(?:because|since|when|while|which|that|to\s+help|to\s+make)\b",
+                match.group(1),
+                maxsplit=1,
+                flags=re.I,
+            )[0]
+            values.extend(
+                part.strip(" ,.;:-")
+                for part in re.split(r",|\band\b|\bor\b", phrase, flags=re.I)
+                if 2 <= len(part.strip()) <= 70
+            )
+
+    # Generic activity / participation values.
+    if re.search(
+        r"\b(?:activities?|hobbies?|partake|destress|de-stress|in what ways|participat|events?)\b",
+        lower_q,
+    ):
+        for pattern in (
+            re.compile(
+                r"\b(?:been|started|kept|enjoys?|likes?|loves?|go|goes|went)\s+"
+                r"(?:to\s+)?([a-z][a-z-]+ing)\b",
+                re.I,
+            ),
+            re.compile(
+                r"\bsigned\s+up\s+for\s+(?:a\s+|an\s+)?"
+                r"([a-z][a-z-]+)(?:\s+class|\s+course|\s+workshop)\b",
+                re.I,
+            ),
+            re.compile(
+                r"\b(?:attended|joined|participated\s+in|went\s+to)\s+"
+                r"(?:a\s+|an\s+|the\s+)?([^,.!?]{2,70})",
+                re.I,
+            ),
+        ):
+            for match in pattern.finditer(sentence):
+                value = match.group(1).strip(" ,.;:-")
+                if 2 <= len(value) <= 70:
+                    values.append(value)
+
+    # De-duplicate and discard obvious dialogue scaffolding.
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        value = re.sub(r"^(?:a|an|the)\s+", "", value.strip(), flags=re.I)
+        value = re.sub(r"^(?:my|our|his|her|their)\s+", "", value, flags=re.I)
+        if not value or _GREETING_ONLY_RE.match(value):
+            continue
+        if value.lower() in {"it", "them", "this", "that", "things", "stuff"}:
+            continue
+        key = value.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(value)
+    return cleaned
+
+
+def _stem_shared_token(token: str) -> str:
+    lower = token.casefold().strip(".,;:!?'\"")
+    for suffix in ("ing", "ed", "es", "s"):
+        if len(lower) > len(suffix) + 3 and lower.endswith(suffix):
+            lower = lower[: -len(suffix)]
+            break
+    return lower
+
+
+def _shared_entity_answer(
+    question: str,
+    normalized: list[_ContextItem],
+    max_chars: int,
+) -> str | None:
+    """Find compact values independently supported for every named entity."""
+    if not re.search(r"\bboth\b|\bin common\b|\bshared\b|\beach\b", question, re.I):
+        return None
+
+    entities = sorted(_question_entities(question))
+    if len(entities) < 2:
+        return None
+
+    per_entity_values: dict[str, list[str]] = {entity: [] for entity in entities}
+    per_entity_tokens: dict[str, Counter[str]] = {entity: Counter() for entity in entities}
+    q_words = _content_words(question)
+
+    for item in normalized:
+        for sentence in _split_sentences(item.text):
+            lower = sentence.casefold()
+            matched_entities = [entity for entity in entities if entity in lower]
+            if not matched_entities:
+                continue
+
+            compact = _compact_list_values(question, sentence)
+            for entity in matched_entities:
+                per_entity_values[entity].extend(compact)
+
+                # Generic relation/action fallback for non-list commonality questions.
+                # Keep only content words not already present in the question/entity.
+                for token in _content_words(sentence):
+                    stem = _stem_shared_token(token)
+                    if (
+                        stem
+                        and stem not in {_stem_shared_token(word) for word in q_words}
+                        and stem not in {_stem_shared_token(e) for e in entities}
+                        and len(stem) >= 4
+                    ):
+                        per_entity_tokens[entity][stem] += 1
+
+    # Exact compact-value intersection first (cities, titles, services, etc.).
+    value_sets: list[dict[str, str]] = []
+    for entity in entities:
+        mapping: dict[str, str] = {}
+        for value in per_entity_values[entity]:
+            key = " ".join(_stem_shared_token(tok) for tok in _tokens(value))
+            if key:
+                mapping.setdefault(key, value)
+        value_sets.append(mapping)
+
+    if value_sets and all(value_sets):
+        common = set(value_sets[0])
+        for mapping in value_sets[1:]:
+            common &= set(mapping)
+        if common:
+            values = [value_sets[0][key] for key in sorted(common)]
+            return _truncate(", ".join(values[:8]), max_chars)
+
+    # Fallback: intersect salient content stems across each person's evidence.
+    token_sets = [set(counter) for counter in per_entity_tokens.values()]
+    if not token_sets or not all(token_sets):
+        return None
+    shared = set.intersection(*token_sets)
+    if not shared:
+        return None
+
+    generic = {
+        "have", "with", "from", "that", "this", "they", "their", "your", "just",
+        "really", "about", "been", "want", "like", "love", "great", "good", "also",
+        "make", "help", "thing", "time", "need", "when", "what", "both",
+        "last", "next", "this", "year", "month", "week", "spring", "summer",
+        "autumn", "fall", "winter", "ago", "recent", "recently",
+    }
+    ranked = [
+        token
+        for token in shared
+        if token not in generic and token not in {_stem_shared_token(x) for x in q_words}
+    ]
+    if not ranked:
+        return None
+
+    # Prefer tokens repeatedly attested across people.
+    ranked.sort(
+        key=lambda token: sum(per_entity_tokens[e][token] for e in entities),
+        reverse=True,
+    )
+    best = ranked[0]
+    # Recover a readable surface form from evidence.
+    variants: Counter[str] = Counter()
+    for item in normalized:
+        for token in re.findall(r"[A-Za-z][A-Za-z'-]{2,}", item.text):
+            if _stem_shared_token(token) == best:
+                variants[token] += 1
+    surface = variants.most_common(1)[0][0] if variants else best
+    return _truncate(surface, max_chars)
+
+
+def _list_answer(
+    question: str,
+    normalized: list[_ContextItem],
+    max_chars: int,
+) -> tuple[str, bool] | None:
+    question_words = _content_words(question)
+    entities = _question_entities(question)
+    scored_sentences: list[tuple[float, str]] = []
+    seen_sentences: set[str] = set()
+
+    for item in normalized:
+        for sentence in _split_sentences(item.text):
+            if len(sentence) < 8:
+                continue
+            overlap = _overlap_score(question_words, sentence, entities)
+            lower = sentence.lower()
+            relation_bonus = 0.0
+            if re.search(
+                r"\b(?:visit|visited|went to|trip to|travel(?:ed|led)? to|"
+                r"read|painted|attended|participated|camped|vacationed)\b",
+                lower,
+            ):
+                relation_bonus += 0.45
+            if re.search(
+                r"\b(?:offer|offering|provide|provides|classes|workshops|training|services)\b",
+                lower,
+            ):
+                relation_bonus += 0.45
+            if overlap < 0.12 and relation_bonus == 0.0:
+                continue
+            key = re.sub(r"\s+", " ", sentence.strip()).lower()
+            if key in seen_sentences:
+                continue
+            seen_sentences.add(key)
+            scored_sentences.append(
+                (
+                    overlap + relation_bonus + min(item.score, 1.0) * 0.12,
+                    sentence.strip(),
+                )
+            )
+
+    if not scored_sentences:
+        return None
+    scored_sentences.sort(key=lambda item: item[0], reverse=True)
+
+    values: list[str] = []
+    seen_values: set[str] = set()
+    for _, sentence in scored_sentences[:10]:
+        for value in _compact_list_values(question, sentence):
+            key = value.casefold()
+            if key in seen_values:
+                continue
+            seen_values.add(key)
+            values.append(value)
+            if len(values) >= 8:
+                break
+        if len(values) >= 8:
+            break
+
+    if values:
+        compact = ", ".join(values)
+        return _truncate(compact, max_chars), True
+
+    # Last-resort evidence aggregation when no structured values were extractable.
+    chosen: list[str] = []
+    used = 0
+    for _, sentence in scored_sentences[:6]:
+        if used + len(sentence) > max_chars and chosen:
+            continue
+        chosen.append(sentence)
+        used += len(sentence) + 2
+        if len(chosen) >= 2:
+            break
+    return (_truncate(" ".join(chosen), max_chars), False) if chosen else None
+
+
 def _normalize_contexts(
     contexts: list[str] | list[dict[str, Any]],
 ) -> list[_ContextItem]:
     items: list[_ContextItem] = []
     for raw in contexts:
         if isinstance(raw, str):
+            session_date = _context_session_date(raw)
             text = _filter_context_text(raw)
             if text:
-                items.append(_ContextItem(text=text))
+                items.append(_ContextItem(text=text, session_date=session_date))
             continue
-        text = _filter_context_text(str(raw.get("text") or ""))
+        raw_text = str(raw.get("text") or "")
+        provenance = raw.get("provenance") if isinstance(raw.get("provenance"), dict) else {}
+        session_date = _context_session_date(raw_text, provenance)
+        text = _filter_context_text(raw_text)
         if not text:
             continue
         items.append(
             _ContextItem(
                 text=text,
                 memory_type=str(raw.get("memory_type") or "note"),
-                provenance=raw.get("provenance") if isinstance(raw.get("provenance"), dict) else {},
+                provenance=provenance,
                 score=float(raw.get("score") or 0.0),
+                session_date=session_date,
             )
         )
     return items
@@ -512,6 +960,11 @@ def _context_metadata_bonus(
 
     if provenance.get("hop"):
         bonus += 0.45
+
+    if provenance.get("conversation_neighbor"):
+        bonus += 0.28
+    if provenance.get("source") == "conversation-window":
+        bonus += 0.22
 
     if provenance.get("chain_reachable"):
         bonus += 0.14
@@ -573,8 +1026,10 @@ def _is_usable_context(item: _ContextItem) -> bool:
         return True
     if item.memory_type in _PREFERRED_MEMORY_TYPES and len(text) >= 8:
         return True
-    # Giant raw session dumps drown extractive QA — keep only shorter evidence.
-    if len(text) > 700 and item.memory_type in {"log", "note"}:
+    # Structured reasoning works sentence-by-sentence, so moderately long
+    # session evidence is still useful. Only reject truly oversized raw dumps;
+    # the context compiler already enforces the global packet budget.
+    if len(text) > 3000 and item.memory_type in {"log", "note"}:
         return False
     if len(text) < 8 and not re.search(r"\b(19|20)\d{2}\b", text):
         return False
@@ -654,6 +1109,11 @@ def _score_candidate(
             score += 0.9
 
     lower = span.lower()
+    if _GREETING_ONLY_RE.match(span.strip()):
+        score -= 1.4
+    if _GREETING_ONLY_RE.match(sentence.strip()):
+        score -= 0.8
+
     if kind == "yes_no":
         if any(cue in lower for cue in _NEG_CUES):
             score += 0.2
@@ -792,6 +1252,10 @@ def synthesize_answer(
     if not normalized:
         return ""
 
+    precise = _precise_scalar_answer(question, normalized)
+    if precise:
+        return _truncate(precise, max_chars)
+
     temporal_bias = _question_temporal_bias(question)
     kind = _question_kind(question)
     question_words = _content_words(question)
@@ -799,11 +1263,25 @@ def synthesize_answer(
     occupation_question = _is_occupation_question(question)
     identity_question = _is_identity_question(question)
 
+    list_question = _is_list_question(question)
+
+    shared_answer = _shared_entity_answer(question, normalized, max_chars)
+    if shared_answer:
+        return shared_answer
+
     # For "when" questions, prefer contexts that actually contain date spans.
     if kind == "when":
-        dated_only = [item for item in normalized if _extract_date_spans(item.text)]
-        if dated_only:
-            normalized = dated_only
+        duration_question = bool(
+            re.search(r"\bhow long\b|\bhow many\s+(?:years?|months?|weeks?)\b", question, re.I)
+        )
+        temporal_only = [
+            item for item in normalized
+            if _extract_date_spans(item.text)
+            or _extract_duration_spans(item.text)
+            or item.session_date
+        ]
+        if temporal_only:
+            normalized = temporal_only
 
     if kind == "yes_no":
         sentences: list[tuple[float, str]] = []
@@ -858,7 +1336,11 @@ def synthesize_answer(
 
     if kind == "when":
         duration_question = bool(
-            re.search(r"\bhow long\b|\bhow many years\b|\byears? ago\b", question, re.I)
+            re.search(
+                r"\bhow long\b|\bhow many\s+(?:years?|months?|weeks?)\b|\byears? ago\b",
+                question,
+                re.I,
+            )
         )
         # Prefer a date that co-occurs with question entities/content in the same sentence.
         dated: list[tuple[float, str]] = []
@@ -883,6 +1365,13 @@ def synthesize_answer(
                 spans = spans or _extract_date_spans(sentence)
                 spans = _prefer_absolute_date_spans(spans)
                 for date in spans:
+                    # Duration questions should answer with a duration, not the
+                    # session timestamp that happens to anchor the evidence.
+                    duration_bonus = (
+                        1.25
+                        if duration_question and _extract_duration_spans(date)
+                        else 0.0
+                    )
                     # Penalize dates that are just session stamps without topical words.
                     topical = overlap + (
                         0.4 if any(w in sentence.lower() for w in question_words) else 0.0
@@ -893,10 +1382,22 @@ def synthesize_answer(
                     # when overlap is otherwise similar.
                     dated.append(
                         (
-                            meta + topical + abs_bonus + min(len(date), 40) * 0.015,
+                            meta + topical + abs_bonus + duration_bonus
+                            + min(len(date), 40) * 0.015,
                             date,
                         )
                     )
+            if item.session_date and not duration_question:
+                topical_sentences = [
+                    sentence for sentence in _split_sentences(item.text)
+                    if _overlap_score(question_words, sentence, entities) >= 0.22
+                ]
+                if topical_sentences:
+                    best_overlap = max(
+                        _overlap_score(question_words, sentence, entities)
+                        for sentence in topical_sentences
+                    )
+                    dated.append((meta + best_overlap + 0.55, item.session_date))
         if dated:
             dated.sort(key=lambda x: (x[0], len(x[1])), reverse=True)
             # If the top hit is relative-only, skip down to an absolute one.
@@ -904,8 +1405,8 @@ def synthesize_answer(
                 if not _is_relative_only_date(date) or all(
                     _is_relative_only_date(d) for _, d in dated
                 ):
-                    return _truncate(date, max_chars)
-            return _truncate(dated[0][1], max_chars)
+                    return _truncate(_display_date(date), max_chars)
+            return _truncate(_display_date(dated[0][1]), max_chars)
         dates = _prefer_absolute_date_spans(
             _extract_duration_spans(best.text)
             or _extract_date_spans(best.text)
@@ -913,7 +1414,7 @@ def synthesize_answer(
             or _extract_date_spans(best.sentence)
         )
         if dates:
-            return _truncate(dates[0], max_chars)
+            return _truncate(_display_date(dates[0]), max_chars)
         # Avoid vague relative answers when no absolute date is available.
         if re.search(
             r"\b(?:last|next|this)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|weekend|month)\b",
@@ -925,7 +1426,7 @@ def synthesize_answer(
                     _extract_date_spans(cand.text) or _extract_date_spans(cand.sentence)
                 )
                 if alt and not _is_relative_only_date(alt[0]):
-                    return _truncate(alt[0], max_chars)
+                    return _truncate(_display_date(alt[0]), max_chars)
 
     if kind == "where":
         locs = _extract_location_spans(best.text) or _extract_location_spans(best.sentence)
@@ -954,6 +1455,22 @@ def synthesize_answer(
             # Keep the head noun/tool name when the object is long.
             head = re.split(r"\s+for\s+|\s+as\s+", obj, maxsplit=1)[0].strip()
             return _truncate(head or obj, max_chars)
+
+    # Distributed/list questions may require evidence from multiple contexts.
+    # Only use aggregation when at least two distinct high-relevance sentences exist.
+    if list_question:
+        list_result = _list_answer(question, normalized, max_chars)
+        if list_result:
+            list_answer, structured_values = list_result
+            parts = _split_sentences(list_answer)
+            if structured_values or "," in list_answer or len(parts) >= 2 or any(
+                cue in list_answer.lower()
+                for cue in (
+                    "visited", "trip to", "offer", "provid",
+                    "classes", "workshops", "training",
+                )
+            ):
+                return list_answer
 
     # Prefer a tight span when it still overlaps the question.
     answer = _strip_supersession_tail(best.text if best.score >= 0.2 and len(best.text) <= max_chars else best.sentence)
