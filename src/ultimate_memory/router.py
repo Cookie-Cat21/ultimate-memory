@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import logging
 import re
 from datetime import UTC, datetime
@@ -448,18 +449,33 @@ class MemoryRouter:
 
         def _keyword():
             rows = self.store.keyword_search(query, actual_limit)
-            return [
-                SearchResult(
-                    id=row["id"],
-                    title=row["title"],
-                    text=row["text"],
-                    source_path=row["source_path"],
-                    memory_type=row["memory_type"],
-                    score=self._keyword_score(query, row["text"]),
-                    provenance={"source": "sqlite-fts"},
+            output: list[SearchResult] = []
+            for row in rows:
+                try:
+                    metadata = json.loads(row.get("metadata_json") or "{}")
+                except (TypeError, json.JSONDecodeError):
+                    metadata = {}
+                output.append(
+                    SearchResult(
+                        id=row["id"],
+                        title=row["title"],
+                        text=row["text"],
+                        source_path=row["source_path"],
+                        memory_type=row["memory_type"],
+                        score=self._keyword_score(query, row["text"]),
+                        provenance={
+                            "source": "sqlite-fts",
+                            "metadata": metadata,
+                            "session_id": metadata.get("session_id"),
+                            "question_speaker": metadata.get("question_speaker"),
+                            "answer_speaker": metadata.get("answer_speaker"),
+                            "pair": bool(metadata.get("pair")),
+                            "created_at": row.get("created_at"),
+                            "project_path": row.get("project_path"),
+                        },
+                    )
                 )
-                for row in rows
-            ]
+            return output
 
         def _basic():
             return self.basic.search(query, actual_limit, include_cli=False)
