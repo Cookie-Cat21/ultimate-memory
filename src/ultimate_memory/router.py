@@ -281,7 +281,14 @@ class MemoryRouter:
         context_texts = [str(item.get("text") or "") for item in rich_contexts if item.get("text")]
 
         reader_used = False
-        if use_reader and rich_contexts:
+        reader_skipped_reason: str | None = None
+        # The deterministic temporal extractor consistently outperforms the
+        # generic SQuAD reader on dates/durations, so hybrid mode preserves it.
+        should_use_reader = use_reader and plan.kind != "temporal"
+        if use_reader and plan.kind == "temporal":
+            reader_skipped_reason = "temporal_extractor_preferred"
+
+        if should_use_reader and rich_contexts:
             try:
                 from .reader import get_extractive_reader
 
@@ -315,6 +322,7 @@ class MemoryRouter:
             "hop_searches": hop_searches,
             "aggregated": None,
             "reader_used": reader_used,
+            "reader_skipped_reason": reader_skipped_reason,
         }
 
     def search(
