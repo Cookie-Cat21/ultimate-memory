@@ -135,7 +135,7 @@ class VectorAdapter:
             "access_count": atom.access_count,
             "entities": atom.entities,
             "created_at": atom.created_at,
-            "kind": atom.metadata.get("kind"),
+            "atom_kind": atom.metadata.get("kind"),
             "parent_turn_id": atom.metadata.get("parent_turn_id"),
             "claim": atom.metadata.get("claim"),
         }
@@ -160,7 +160,7 @@ class VectorAdapter:
                     "access_count": payload.get("access_count"),
                     "entities": payload.get("entities"),
                     "project_path": payload.get("project_path"),
-                    "kind": payload.get("kind"),
+                    "kind": payload.get("atom_kind"),
                     "parent_turn_id": payload.get("parent_turn_id"),
                     "claim": payload.get("claim"),
                     "payload": payload,
