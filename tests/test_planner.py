@@ -88,3 +88,9 @@ def test_possessive_relation_chain_requires_bridge():
     plan = plan_query("Where does Elena's sister's mentor work?")
     assert plan.kind == "multi_hop"
     assert plan.requires_bridge is True
+
+
+def test_favorite_question_prefers_preference_memory():
+    plan = plan_query("What is Gina's favorite style of dance?")
+    assert "preference" in plan.memory_types
+    assert any("favorite" in expansion for expansion in plan.expansions)
