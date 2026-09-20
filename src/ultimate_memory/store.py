@@ -311,6 +311,69 @@ class LocalStore:
             ).fetchone()
         return self._row_to_atom(row) if row else None
 
+    def neighboring_turn_atoms(
+        self,
+        session_id: str,
+        dia_id: str,
+        *,
+        radius: int = 1,
+        project_path: str | None = None,
+    ) -> list[AtomicMemory]:
+        """Return nearby direct-turn atoms from the same conversation session."""
+        match = re.fullmatch(r"D(\d+):(\d+)", dia_id.strip(), re.I)
+        if not session_id or not match or radius < 1:
+            return []
+        dialogue_no = int(match.group(1))
+        turn_no = int(match.group(2))
+
+        clauses = [
+            "valid_until is null",
+            "superseded_by is null",
+            "id like 'atom:turn:%'",
+        ]
+        params: list[object] = []
+        if project_path:
+            clauses.append("(project_path = ? or project_path is null or project_path = '')")
+            params.append(project_path)
+
+        with self._connect() as conn:
+            try:
+                rows = conn.execute(
+                    f"""
+                    select * from memory_atoms
+                    where {' and '.join(clauses)}
+                      and json_extract(metadata_json, '$.session_id') = ?
+                    order by created_at, id
+                    limit 200
+                    """,
+                    [*params, session_id],
+                ).fetchall()
+            except sqlite3.OperationalError:
+                rows = conn.execute(
+                    f"""
+                    select * from memory_atoms
+                    where {' and '.join(clauses)}
+                      and metadata_json like ?
+                    order by created_at, id
+                    limit 200
+                    """,
+                    [*params, f'%"session_id": "{session_id}"%'],
+                ).fetchall()
+
+        neighbors: list[tuple[int, AtomicMemory]] = []
+        for row in rows:
+            atom = self._row_to_atom(row)
+            candidate_id = str(atom.metadata.get("dia_id") or "")
+            candidate = re.fullmatch(r"D(\d+):(\d+)", candidate_id, re.I)
+            if not candidate or int(candidate.group(1)) != dialogue_no:
+                continue
+            candidate_turn = int(candidate.group(2))
+            distance = abs(candidate_turn - turn_no)
+            if 0 < distance <= radius:
+                neighbors.append((candidate_turn, atom))
+        neighbors.sort(key=lambda item: item[0])
+        return [atom for _, atom in neighbors]
+
     def list_active_atoms(
         self,
         *,
