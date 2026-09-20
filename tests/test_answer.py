@@ -339,3 +339,25 @@ session_date: 10 May 2023
         if "What pet do you have?" in item["text"] and "guinea pig" in item["text"]
     ]
     assert pair_hits
+
+
+def test_shared_city_intersection_across_people():
+    contexts = [
+        {"text": "Jean: I visited Rome last spring.", "score": 0.9},
+        {"text": "Jean: I also visited Paris.", "score": 0.8},
+        {"text": "John: I traveled to Rome last year.", "score": 0.9},
+        {"text": "John: I visited Berlin too.", "score": 0.8},
+    ]
+    answer = synthesize_answer("Which city have both Jean and John visited?", contexts)
+    assert "Rome" in answer
+    assert "Paris" not in answer
+    assert "Berlin" not in answer
+
+
+def test_shared_activity_intersection_uses_entity_evidence():
+    contexts = [
+        {"text": "Jon: I dance whenever I need to destress.", "score": 0.9},
+        {"text": "Gina: Dancing helps me relax after stressful days.", "score": 0.9},
+    ]
+    answer = synthesize_answer("How do Jon and Gina both like to destress?", contexts)
+    assert "danc" in answer.lower()
