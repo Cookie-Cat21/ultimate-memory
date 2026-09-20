@@ -8,6 +8,8 @@ jobs:
   clean-benchmark:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      ULTIMATE_MEMORY_LOCAL_SEMANTIC: "1"
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
