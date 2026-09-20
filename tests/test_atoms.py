@@ -289,3 +289,30 @@ class TestAtomLifecycle:
         groups = group_near_duplicates(atoms, threshold=0.5)
         assert len(groups) == 1
         assert {a.id for a in groups[0]} == {"1", "2"}
+
+
+def test_entity_scoped_atom_candidates(tmp_path):
+    router = MemoryRouter(make_settings(tmp_path))
+    router.store.upsert_atom(
+        AtomicMemory(
+            text="Caroline keeps a guinea pig named Clover.",
+            memory_type=MemoryType.FACT,
+            entities=["Caroline", "Clover"],
+            project_path="/project",
+        )
+    )
+    router.store.upsert_atom(
+        AtomicMemory(
+            text="Jon is opening a dance studio.",
+            memory_type=MemoryType.FACT,
+            entities=["Jon"],
+            project_path="/project",
+        )
+    )
+    candidates = router.store.list_active_atoms_for_entities(
+        ["Caroline"],
+        project_path="/project",
+        limit=10,
+    )
+    assert any("guinea pig" in atom.text for atom in candidates)
+    assert all("Jon" not in atom.text for atom in candidates)
