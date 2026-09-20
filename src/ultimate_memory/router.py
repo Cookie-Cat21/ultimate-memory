@@ -319,6 +319,7 @@ class MemoryRouter:
                 tags=tags,
                 memory_types=memory_types,
                 include_superseded=include_superseded,
+                project_path=project_path,
             ) if self._vector_ready else []
 
         def _keyword():
