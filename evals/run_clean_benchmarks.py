@@ -135,6 +135,7 @@ def run(
     max_dialogs: int | None = None,
     max_questions: int | None = None,
     use_llm: bool = False,
+    use_reader: bool = False,
 ) -> dict:
     data = json.loads((DATA / "locomo10.json").read_text(encoding="utf-8"))
     data = data[max(start_dialog, 0):]
@@ -188,6 +189,7 @@ def run(
                 project_path=str(work / "project"),
                 limit=20,
                 use_llm=use_llm,
+                use_reader=use_reader,
             )
             score = tokenize_f1(result["answer"], golds)
             scores[category].append(score)
@@ -255,6 +257,7 @@ def run(
         "retrieval_by_category": retrieval_by_category,
         "by_category": by_category,
         "use_llm": use_llm,
+        "use_reader": use_reader,
     }
 
 
@@ -265,6 +268,7 @@ def main() -> None:
     parser.add_argument("--max-questions", type=int, default=None)
     parser.add_argument("--quick", action="store_true")
     parser.add_argument("--llm", action="store_true")
+    parser.add_argument("--reader", action="store_true")
     args = parser.parse_args()
     if args.quick:
         args.max_dialogs = args.max_dialogs or 1
@@ -275,6 +279,7 @@ def main() -> None:
         max_dialogs=args.max_dialogs,
         max_questions=args.max_questions,
         use_llm=args.llm,
+        use_reader=args.reader,
     )
     (RESULTS / "latest.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
