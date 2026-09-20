@@ -22,6 +22,8 @@ class QueryPlan(BaseModel):
     memory_types: list[str] = Field(default_factory=list)
     expansions: list[str] = Field(default_factory=list)
     signals: list[str] = Field(default_factory=list)
+    multi_evidence: bool = False
+    requires_bridge: bool = False
 
 
 _CAPITALIZED = re.compile(r"\b([A-Z][a-zA-Z0-9_.-]*(?:\s+[A-Z][a-zA-Z0-9_.-]*){0,3})\b")
@@ -99,6 +101,20 @@ def _entities(question: str) -> list[str]:
         if value not in found:
             found.append(value)
     return found[:8]
+
+
+def _requires_bridge(question: str) -> bool:
+    """Whether answering requires traversing an unnamed relationship chain."""
+    lower = question.lower()
+    possessives = len(re.findall(r"\b[\w.-]+'s\b", question))
+    relation_hits = sum(
+        1 for word in _RELATION_WORDS
+        if re.search(rf"\b{re.escape(word)}\b", lower)
+    )
+    chained_of = len(
+        re.findall(r"\bof\s+(?:the\s+)?(?:\w+\s+){0,2}(?:of|for|at)\b", lower)
+    )
+    return possessives >= 2 or chained_of > 0 or (possessives >= 1 and relation_hits >= 1)
 
 
 def _hop_depth(question: str, entities: list[str] | None = None) -> int:
@@ -181,6 +197,8 @@ def plan_query(question: str, *, as_of: str | None = None) -> QueryPlan:
         include_superseded = False
 
     entities = _entities(question)
+    multi_evidence = _is_collective_multi_hop(question, entities)
+    requires_bridge = _requires_bridge(question)
     depth = _hop_depth(question, entities)
     temporal_question = _is_temporal_question(question)
     if depth > 1:
@@ -200,4 +218,6 @@ def plan_query(question: str, *, as_of: str | None = None) -> QueryPlan:
         memory_types=_memory_types(question),
         expansions=_expansions(question),
         signals=signals,
+        multi_evidence=multi_evidence,
+        requires_bridge=requires_bridge,
     )
