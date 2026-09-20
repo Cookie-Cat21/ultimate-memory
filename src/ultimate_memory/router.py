@@ -33,6 +33,7 @@ from .extraction import (
 from .models import (
     AtomicMemory,
     AuditEvent,
+    CompiledMemory,
     MemoryChunk,
     MemoryType,
     ReflectionPayload,
@@ -701,6 +702,86 @@ class MemoryRouter:
             "qdrant_chunks": vector_count,
             "graph_chunks": graph_count,
             "reflection": reflection_result,
+        }
+
+    def ingest_compiled_memories(
+        self,
+        memories: list[CompiledMemory],
+        *,
+        session_id: str,
+        project_path: str | None = None,
+        event_time: str | None = None,
+        compiler: str = "external",
+    ) -> dict:
+        """Commit externally compiled atomic memories while preserving evidence links.
+
+        The compiler is optional; raw logs/turns remain the source of truth. This
+        method exists so local or hosted models can improve proposition quality
+        without coupling the core memory engine to any one LLM provider.
+        """
+        created = 0
+        duplicates = 0
+        superseded = 0
+        atom_ids: list[str] = []
+
+        for index, item in enumerate(memories):
+            text = item.text.strip()
+            if not text:
+                continue
+            source_refs = [
+                f"session:{session_id}:dia:{dia_id}"
+                for dia_id in item.source_dia_ids
+                if dia_id
+            ] or [f"session:{session_id}"]
+            metadata = {
+                **item.metadata,
+                "compiled": True,
+                "compiler": compiler,
+                "compiler_confidence": item.confidence,
+                "session_id": session_id,
+                "source_dia_ids": item.source_dia_ids,
+            }
+            atom = AtomicMemory(
+                id=f"atom:compiled:{safe_slug(session_id, 'session')}:{index}",
+                text=text,
+                memory_type=item.memory_type,
+                project_path=project_path,
+                entities=list(dict.fromkeys(item.entities)),
+                source_refs=source_refs,
+                valid_from=item.valid_from or event_time or now_iso(),
+                event_time=event_time,
+                importance=min(1.0, max(0.45, item.confidence)),
+                metadata=metadata,
+            )
+            outcome = self._ingest_atom(atom)
+            status = outcome.get("status")
+            if status == "created":
+                created += 1
+                atom_ids.append(atom.id)
+            elif status == "duplicate":
+                duplicates += 1
+            superseded += len(outcome.get("superseded") or [])
+
+        self.store.write_audit(
+            AuditEvent(
+                action="ingest_compiled_memories",
+                payload={
+                    "session_id": session_id,
+                    "compiler": compiler,
+                    "received": len(memories),
+                    "created": created,
+                    "duplicates": duplicates,
+                    "superseded": superseded,
+                },
+                source_refs=[f"session:{session_id}"],
+            )
+        )
+        return {
+            "received": len(memories),
+            "created": created,
+            "duplicates": duplicates,
+            "superseded": superseded,
+            "atom_ids": atom_ids,
         }
 
     def reflect(
