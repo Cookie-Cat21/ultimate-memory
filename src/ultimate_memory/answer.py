@@ -581,6 +581,8 @@ def _is_list_question(question: str) -> bool:
             r"\bwhich\s+(?!(?:is|was|does|did|has|have)\b)[a-z]+s\b|"
             r"\bwhat\s+(?!(?:is|was|does|did|has|have)\b)[a-z]+s\b|"
             r"\bwhat\s+does\s+.+?\s+(?:offer|provide|include|do\s+to)\b|"
+            r"\bin\s+what\s+ways\b|"
+            r"\bwhat\s+do\s+.+?'s\s+[a-z]+s\s+(?:like|enjoy|prefer|do)\b|"
             r"\bwhere\s+has\s+.+?\s+(?:camped|traveled|travelled|visited|stayed|lived)\b",
             lower,
         )
