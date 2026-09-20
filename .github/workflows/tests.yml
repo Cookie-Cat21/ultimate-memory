@@ -26,5 +26,11 @@ jobs:
       - name: Lint
         run: uv run ruff check .
 
+      - name: Benchmark integrity
+        run: uv run python scripts/check_benchmark_integrity.py
+
+      - name: Clean benchmark smoke test
+        run: uv run python evals/run_clean_benchmarks.py --quick
+
       - name: Run tests
         run: uv run pytest tests/ -k "not Live" -q
