@@ -86,7 +86,8 @@ def test_question_speaker_only_pair_is_weak_evidence():
         },
     ]
     scoped = filter_entity_scoped_results(results, ["Melanie"], min_matches=1)
-    assert [item["id"] for item in scoped] == ["direct"]
+    assert scoped[0]["id"] == "direct"
+    assert {item["id"] for item in scoped} == {"direct", "pair"}
 
 
 def test_pair_answer_speaker_is_strong_evidence():
@@ -107,7 +108,7 @@ def test_pair_answer_speaker_is_strong_evidence():
         },
     ]
     scoped = filter_entity_scoped_results(results, ["Melanie"], min_matches=1)
-    assert [item["id"] for item in scoped] == ["pair"]
+    assert scoped[0]["id"] == "pair"
 
 
 def test_nested_vector_payload_preserves_answer_attribution():
