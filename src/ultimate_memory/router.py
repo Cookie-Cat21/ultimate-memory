@@ -389,6 +389,7 @@ class MemoryRouter:
     ) -> dict:
         actual_limit = limit or self.settings.retrieval.default_limit
         self.store.refresh_salience(limit=200)
+        query_plan = plan_query(query, as_of=as_of)
 
         temporal_query = as_of is None and is_temporal_query(query)
         if temporal_query:
@@ -440,12 +441,17 @@ class MemoryRouter:
         def _local_semantic():
             if self._vector_ready or not local_semantic_enabled():
                 return []
-            atoms = self.store.list_active_atoms(
-                memory_types=memory_types,
+            atoms = self.store.list_active_atoms_for_entities(
+                query_plan.entities,
                 project_path=project_path,
-                limit=max(actual_limit * 30, 240),
+                limit=max(actual_limit * 12, 120)
+                if query_plan.entities
+                else max(actual_limit * 20, 160),
                 as_of=as_of,
             )
+            if memory_types:
+                allowed = set(memory_types)
+                atoms = [atom for atom in atoms if atom.memory_type.value in allowed]
             return self._local_semantic.search(
                 query,
                 atoms,
@@ -484,7 +490,6 @@ class MemoryRouter:
             existing_keys.add(key)
 
         results = self._apply_salience_rerank(results)
-        query_plan = plan_query(query, as_of=as_of)
         results = rerank_candidates(query, results, query_plan)[:actual_limit]
 
         touched = [
