@@ -55,10 +55,12 @@ _COLLECTIVE_RE = re.compile(
 )
 
 _LIST_OR_SET_RE = re.compile(
-    r"\bwhich\s+(?:cities|places|countries|states|books|games|activities|items|things|ways|types|kinds)\b|"
-    r"\bwhat\s+(?:cities|places|countries|states|books|games|activities|items|things|ways|types|kinds)\b|"
-    r"\bwhat\s+does\s+.+?\s+(?:offer|provide|include)\b|"
-    r"\b(?:all|multiple|several)\s+(?:cities|places|books|activities|items|things|ways|types)\b",
+    r"\bwhich\s+(?:[a-z]+s|cities|places|countries|states|books|games|activities|items|things|ways|types|kinds)\b|"
+    r"\bwhat\s+(?:[a-z]+s|cities|places|countries|states|books|games|activities|items|things|ways|types|kinds)\b|"
+    r"\bwhat\s+does\s+.+?\s+(?:offer|provide|include|do\s+to)\b|"
+    r"\b(?:all|multiple|several)\s+(?:[a-z]+s|cities|places|books|activities|items|things|ways|types)\b|"
+    r"\bwhere\s+has\s+.+?\s+(?:camped|traveled|travelled|visited|stayed|lived)\b|"
+    r"\bwhat\s+.+?\s+has\s+.+?\s+(?:done|read|visited|attended|participated|painted|tried|used)\b",
     re.I,
 )
 
