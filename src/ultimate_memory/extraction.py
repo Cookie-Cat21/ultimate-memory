@@ -277,6 +277,27 @@ def _extract_entities_from_line(speaker: str | None, text: str) -> list[str]:
     return found
 
 
+
+
+def extract_turn_entities(speaker: str, utterance: str) -> list[str]:
+    """Return stable entity candidates for one dialogue turn.
+
+    The speaker is always included. Other capitalized/relationship entities are
+    extracted generically so multi-hop retrieval can traverse through people,
+    organizations, places, and named objects mentioned in the turn.
+    """
+    found = _extract_entities_from_line(speaker, utterance)
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for name in found:
+        cleaned = name.strip()
+        key = cleaned.casefold()
+        if not cleaned or key in seen:
+            continue
+        seen.add(key)
+        ordered.append(cleaned)
+    return ordered[:12]
+
 def _match_fact(speaker: str | None, text: str) -> str | None:
     for pattern, template in _FACT_PATTERNS:
         m = pattern.search(text)
