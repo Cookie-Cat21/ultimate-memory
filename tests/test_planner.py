@@ -45,3 +45,14 @@ def test_collective_both_question_triggers_multi_hop():
 def test_two_entity_comparison_triggers_multi_hop():
     plan = plan_query("What do Elena and Marcus have in common?")
     assert plan.kind == "multi_hop"
+
+
+def test_plural_set_query_uses_multi_hop_plan():
+    plan = plan_query("Which cities has Jon visited?")
+    assert plan.kind == "multi_hop"
+    assert plan.hop_depth >= 2
+
+
+def test_offer_query_uses_multi_evidence_plan():
+    plan = plan_query("What does Jon's dance studio offer?")
+    assert plan.kind == "multi_hop"
