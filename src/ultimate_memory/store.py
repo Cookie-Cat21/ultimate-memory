@@ -449,6 +449,8 @@ class LocalStore:
         for candidate in extras:
             if candidate.id == atom.id or candidate.id in seen:
                 continue
+            if atom.project_path and candidate.project_path not in (None, "", atom.project_path):
+                continue
             merged.append(candidate)
             seen.add(candidate.id)
             if len(merged) >= limit:
@@ -460,6 +462,7 @@ class LocalStore:
                 hint,
                 limit=6,
                 memory_types=[atom.memory_type.value],
+                project_path=atom.project_path,
             ):
                 if found.id == atom.id or found.id in seen:
                     continue
