@@ -20,6 +20,7 @@ from .atoms import (
     parse_iso,
 )
 from .chunking import chunk_text
+from .claims import ensure_claim_metadata, structured_conflict_score
 from .config import Settings, load_settings
 from .dates import parse_loose_date, resolve_relative_dates
 from .extraction import extract_from_transcript, parse_dialogue_turns, session_anchor_from_text
@@ -32,26 +33,18 @@ from .models import (
     SearchResult,
     safe_slug,
 )
-from .aggregate import (
-    aggregate_answer,
-    detect_aggregate_intent,
-    filter_list_items_for_question,
-    first_person,
-    harvest_list_items,
-    merge_list_answers,
-)
 from .answer import f1_ready_text, synthesize_answer
 from .hops import (
-    MAX_HOP_DEPTH,
     MAX_HOP_SEARCHES,
     MULTI_HOP_SEARCH_BUDGET,
     build_hop_queries,
-    extract_capitalized_entities,
     extract_hop_entities,
     merge_contexts,
     normalize_entity,
 )
 from .llm_answer import use_llm_from_env
+from .planner import plan_query
+from .ranking import rerank_candidates
 from .store import LocalStore
 
 logger = logging.getLogger(__name__)
@@ -154,12 +147,14 @@ class MemoryRouter:
         use_llm: bool | None = None,
         category: str | None = None,
     ) -> dict:
-        """Retrieve memory contexts and synthesize an answer (extractive or optional local LLM).
+        """Plan, retrieve, and answer without benchmark-provided routing labels.
 
-        Optional *category* (e.g. LoCoMo ``multi_hop`` / ``open_domain``) enables
-        safe person-window boosts that must not run on single_hop/temporal.
+        The category argument is retained for API compatibility and ignored.
+        Query shape, temporal intent, and hop depth are inferred from the question.
         """
-        # Keyword-dense query helps FTS more than full natural-language questions.
+        _ = category
+        plan = plan_query(question, as_of=as_of)
+
         stop = {
             "when", "what", "where", "who", "whom", "which", "how", "why", "did", "does",
             "do", "is", "are", "was", "were", "the", "a", "an", "to", "of", "in", "on",
@@ -167,203 +162,75 @@ class MemoryRouter:
             "had", "been", "about", "would", "could", "from", "into", "that", "this",
         }
         dense_terms = [
-            tok for tok in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]+", question)
-            if tok.lower() not in stop and len(tok) > 2
+            token
+            for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_.-]+", question)
+            if token.lower() not in stop and len(token) > 2
         ]
-        dense_query = " ".join(dense_terms[:8]) or question
+        dense_query = " ".join(dense_terms[:10]) or question
+        search_queries = list(dict.fromkeys([dense_query, question, *plan.expansions]))
 
-        # Light question expansion for common LoCoMo-style probes.
-        expansions: list[str] = []
-        q_lower_all = question.lower()
-        if "identity" in q_lower_all:
-            expansions.append("transgender woman identity")
-        if "adoption" in q_lower_all:
-            expansions.append("adoption agencies application interview")
-        if "counseling" in q_lower_all or "counselling" in q_lower_all:
-            expansions.append("counseling mental health LGBTQ workshop")
-        if "career" in q_lower_all or re.search(
-            r"\b(?:job|work|occupation|profession)\b", q_lower_all
-        ):
-            expansions.append("career counseling mental health work")
-        if "sweden" in q_lower_all:
-            expansions.append("grandmother Sweden necklace home country")
-        if "camping" in q_lower_all:
-            expansions.append("camping trip outdoors nature")
-        if "pottery" in q_lower_all:
-            expansions.append("pottery class ceramic bowl")
-        if "painting" in q_lower_all or (
-            "paint" in q_lower_all and "sunrise" not in q_lower_all
-        ):
-            expansions.append("painting painted art canvas")
-        if "paint" in q_lower_all and "sunrise" in q_lower_all:
-            expansions.append("painted sunrise last year 2022")
-        if "friend" in q_lower_all:
-            expansions.append("friends friendship close friend")
-        if "research" in q_lower_all:
-            expansions.append("research adoption agencies")
-        if "relationship status" in q_lower_all or "single" in q_lower_all:
-            expansions.append("single parent relationship")
-        if "political" in q_lower_all or "leaning" in q_lower_all:
-            expansions.append("LGBTQ rights liberal inclusive")
-        if "religious" in q_lower_all:
-            expansions.append("church faith religious conservatives")
-        if "personality" in q_lower_all or "traits" in q_lower_all:
-            expansions.append("thoughtful authentic driven real")
-        if "national park" in q_lower_all or "theme park" in q_lower_all:
-            expansions.append("camping nature outdoors meteor")
-        if "roadtrip" in q_lower_all or "road trip" in q_lower_all:
-            expansions.append("roadtrip accident scared family")
-        if "home country" in q_lower_all or "move back" in q_lower_all:
-            expansions.append("adoption agencies family children")
-        if "seuss" in q_lower_all or "bookshelf" in q_lower_all:
-            expansions.append("kids books classics children's library")
-        if "vivaldi" in q_lower_all or "four seasons" in q_lower_all:
-            expansions.append("classical music bach mozart")
-        if "holiday" in q_lower_all or "independence" in q_lower_all:
-            expansions.append("Independence Day July 4th holiday")
-        if "console" in q_lower_all or "nintendo" in q_lower_all or "xenoblade" in q_lower_all:
-            expansions.append("Nintendo Switch Xenoblade console game")
-        if "nickname" in q_lower_all:
-            expansions.append("called nickname call")
-        if "pomodoro" in q_lower_all or "time management" in q_lower_all:
-            expansions.append("Pomodoro technique study exams 25 minutes 5 minutes off")
-        if "composer" in q_lower_all or ("piano" in q_lower_all and "play" in q_lower_all):
-            expansions.append("John Williams piano composer Harry Potter theme")
-        if "endorsement" in q_lower_all or "under armour" in q_lower_all or "outdoor gear" in q_lower_all:
-            expansions.append("Under Armour endorsement outdoor gear Nike Gatorade")
-        if "national park" in q_lower_all:
-            expansions.append("Voyageurs National Park Minnesota nature")
-        if re.search(r"\b(?:us )?state\b", q_lower_all) and re.search(
-            r"\b(?:live|living|potentially)\b", q_lower_all
-        ):
-            expansions.append("Minnesota Voyageurs national park trail map")
-        if re.search(r"\bdegree\b|\bmajor\b", q_lower_all):
-            expansions.append("political science public administration policymaking degree")
-        if re.search(r"\buno\b|colored cards|different colored", q_lower_all):
-            expansions.append("UNO card game colored cards")
-        if re.search(r"\bimposter\b|\bmafia\b", q_lower_all):
-            expansions.append("Mafia board game imposter")
-        if "asthma" in q_lower_all or ("condition" in q_lower_all and "allerg" in q_lower_all):
-            expansions.append("asthma allergic condition allergies")
-        if re.search(r"\bfilmmaker\b|movie scripts?", q_lower_all):
-            expansions.append("filmmaker movie scripts screenplay")
-        if "yoga" in q_lower_all:
-            expansions.append("Hatha yoga strength flexibility core")
-        if re.search(r"\bshop\b|\bminalima\b", q_lower_all):
-            expansions.append("MinaLima House of MinaLima Harry Potter props")
-        if re.search(r"\bdog\b", q_lower_all) and re.search(
-            r"\b(?:indoor|activity|hobby|cook)\b", q_lower_all
-        ):
-            expansions.append("cook dog treats cooking recipes puppy")
-        if re.search(r"\bbird(?:watching)?\b", q_lower_all):
-            expansions.append("bird feeder birdwatching city outdoors")
-        if re.search(r"\bhealth problems?\b|\bfingers are too big\b", q_lower_all):
-            expansions.append("Obesity exercise fingers too big")
-        if re.search(r"\benjoy reading\b|\bbooks by\b", q_lower_all):
-            expansions.append("C. S. Lewis Harry Potter fantasy books")
-
-        # XL26 tried limit=28 + extra hops for multi/open and regressed full-suite
-        # multi 34.7→33.3 / overall 36.2→35.4 — keep baseline limits.
-        search_queries = [dense_query, question, *expansions]
         rich_contexts: list[dict] = []
         search_result: dict = {"results": []}
-        for sq in search_queries:
+        for index, search_query in enumerate(search_queries):
             result = self.search(
-                query=sq,
+                query=search_query,
                 project_path=project_path,
                 limit=limit,
                 as_of=as_of,
+                include_superseded=plan.include_superseded,
             )
-            if sq == dense_query:
+            if index == 0:
                 search_result = result
             rich_contexts.extend(item for item in result["results"] if item.get("text"))
 
-        # Type-biased side searches for how-to / preference / decision questions.
-        q_lower = question.lower()
-        typed_extra: list[tuple[str, list[str]]] = []
-        if any(cue in q_lower for cue in ("how do", "how to", "steps", "procedure", "deploy")):
-            typed_extra.append((question, ["procedure"]))
-        if any(cue in q_lower for cue in ("prefer", "preference", "theme", "always", "never")):
-            typed_extra.append((question, ["preference"]))
-        if any(cue in q_lower for cue in ("decide", "decided", "decision", "chose", "chosen")):
-            typed_extra.append((question, ["decision"]))
-        for typed_query, types in typed_extra:
-            typed_result = self.search(
-                query=typed_query,
+        for memory_type in plan.memory_types:
+            typed = self.search(
+                query=question,
                 project_path=project_path,
-                memory_types=types,
+                memory_types=[memory_type],
                 limit=min(limit, 5),
                 as_of=as_of,
+                include_superseded=plan.include_superseded,
             )
-            for item in typed_result.get("results", []):
-                if item.get("text"):
-                    rich_contexts.append(item)
-            # Lexical miss fallback: inject highest-salience active atoms of that type.
-            for atom in self.store.list_active_atoms(memory_types=types, limit=5):
-                rich_contexts.append(
-                    self._atom_to_search_result(atom, score=max(atom.salience, 0.55)).model_dump()
-                )
+            rich_contexts.extend(item for item in typed["results"] if item.get("text"))
 
-        # Chained multi-hop retrieval: walk the bridge-entity graph transitively
-        # instead of stopping after one follow-up pass. Entities discovered in
-        # a hop-N search become the seeds for hop-(N+1) queries, capped by
-        # hop_depth / hop_budget. multi_hop questions typically need 2+ bridges
-        # (e.g. Elena -> Elena's sister Fiona -> Fiona's employer -> employer's
-        # HQ city), so they get a deeper walk and a larger search budget than
-        # the other three categories, which keep the original depth-1 /
-        # budget-3 behavior to avoid any regression.
-        strict_entities = category == "multi_hop"
-        if category == "multi_hop":
-            hop_depth = MAX_HOP_DEPTH
-            hop_budget = max(max_hop_searches, MULTI_HOP_SEARCH_BUDGET)
-        else:
-            hop_depth = 1
-            hop_budget = max_hop_searches
-
-        seen_entity_keys: set[str] = {
-            normalize_entity(e)
-            for e in extract_capitalized_entities(question, strict=strict_entities)
-        }
-        # Excluding question-mentioned entities from the hop-1 frontier is only
-        # needed for chained levels (so hop 2+ doesn't re-walk an entity already
-        # queried). Master's original single-pass code never excluded them here
-        # at all — it let build_hop_queries' own bridge/fallback logic decide —
-        # so applying the exclusion at hop 1 for every category (not just
-        # multi_hop) shrank the single_hop/temporal/open_domain candidate pool
-        # and regressed their scores. Only pre-filter the initial frontier when
-        # chaining is actually in play.
+        initial_results = search_result.get("results") or []
+        seen_entity_keys = {normalize_entity(entity) for entity in plan.entities}
         frontier = extract_hop_entities(
             question,
-            search_result["results"],
-            exclude=seen_entity_keys if category == "multi_hop" else None,
-            strict=strict_entities,
+            initial_results,
+            exclude=None,
+            strict=plan.hop_depth > 1,
         )
         hop_entities: list[str] = list(frontier)
         hop_searches: list[dict] = []
-        hop_contexts: list[dict] = []
         depth = 0
-        while frontier and depth < hop_depth and len(hop_searches) < hop_budget:
+        hop_budget = max(
+            max_hop_searches,
+            min(MULTI_HOP_SEARCH_BUDGET, max_hop_searches + max(plan.hop_depth - 1, 0) * 2),
+        )
+
+        while frontier and depth < plan.hop_depth and len(hop_searches) < hop_budget:
             remaining = hop_budget - len(hop_searches)
-            hop_queries = build_hop_queries(
+            queries = build_hop_queries(
                 question,
                 frontier,
-                max_queries=min(2, remaining) if remaining > 0 else 0,
-                strict=strict_entities,
+                max_queries=min(2, remaining),
+                strict=plan.hop_depth > 1,
             )
-            if not hop_queries:
+            if not queries:
                 break
             next_frontier: list[str] = []
-            for hop_query in hop_queries:
-                if len(hop_searches) >= hop_budget:
-                    break
+            for hop_query in queries:
                 hop_result = self.search(
                     query=hop_query,
                     project_path=project_path,
                     limit=limit,
                     as_of=as_of,
+                    include_superseded=plan.include_superseded,
                 )
                 hop_searches.append({"query": hop_query, "search": hop_result})
-                for item in hop_result["results"]:
+                for item in hop_result.get("results", []):
                     if not item.get("text"):
                         continue
                     boosted = dict(item)
@@ -371,790 +238,59 @@ class MemoryRouter:
                     provenance["hop"] = True
                     provenance["hop_depth"] = depth + 1
                     boosted["provenance"] = provenance
-                    # Later hops are slightly less trusted than hop 1 (they are
-                    # further from the question), but still boosted above the
-                    # base single-hop search results.
                     boosted["score"] = float(boosted.get("score") or 0.0) + max(
-                        0.35 - 0.1 * depth, 0.1
+                        0.28 - depth * 0.06, 0.08
                     )
-                    hop_contexts.append(boosted)
-                # Seed the next level from entities newly discovered in this
-                # hop's results only (not re-walking entities already queried).
-                for ent in extract_hop_entities(
+                    rich_contexts.append(boosted)
+
+                discovered = extract_hop_entities(
                     question,
-                    hop_result["results"],
-                    limit=4,
+                    hop_result.get("results") or [],
                     exclude=seen_entity_keys,
-                    include_freetext=False,
-                    strict=strict_entities,
-                ):
-                    key = normalize_entity(ent)
-                    if key in seen_entity_keys:
+                    strict=True,
+                )
+                for entity in discovered:
+                    key = normalize_entity(entity)
+                    if not key or key in seen_entity_keys:
                         continue
                     seen_entity_keys.add(key)
-                    next_frontier.append(ent)
-                    hop_entities.append(ent)
-            frontier = next_frontier
+                    next_frontier.append(entity)
+                    hop_entities.append(entity)
+
+                if len(hop_searches) >= hop_budget:
+                    break
+
+            frontier = list(dict.fromkeys(next_frontier))
             depth += 1
 
-        rich_contexts = merge_contexts(rich_contexts, hop_contexts)
-
-        # Prefer atomic / dialogue evidence over noisy reflection markdown notes.
-        def _is_atomicish(item: dict) -> bool:
-            prov = item.get("provenance") or {}
-            source = str(prov.get("source") or "")
-            mtype = str(item.get("memory_type") or "")
-            text = str(item.get("text") or "")
-            if source in {"atomic-memory", "sqlite-fts"} and mtype in {
-                "fact",
-                "preference",
-                "decision",
-                "procedure",
-                "log",
-            }:
-                return True
-            if text.startswith("[D") or item.get("id", "").startswith(("atom:", "turn:")):
-                return True
-            if mtype in {"fact", "preference", "decision", "procedure", "log"}:
-                return True
-            return False
-
-        atomic_contexts = [item for item in rich_contexts if _is_atomicish(item)]
-        if len(atomic_contexts) >= 2:
-            # Keep a couple of notes only if they contain dates the atoms lack.
-            extras = [
-                item
-                for item in rich_contexts
-                if not _is_atomicish(item)
-                and re.search(r"\b(?:19|20)\d{2}\b|\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\b", item.get("text") or "", re.I)
-            ][:2]
-            rich_contexts = atomic_contexts + extras
-
-        # Also inject top keyword atom hits for question entities.
-        for ent in re.findall(r"\b[A-Z][a-z]{2,}\b", question)[:3]:
-            for atom in self.store.search_atoms(ent, limit=4):
-                rich_contexts.append(
-                    self._atom_to_search_result(atom, score=max(atom.salience, 0.5)).model_dump()
-                )
-
-        # "What did X / what is X's / where did X" → targeted "{Name} {key_noun}" atom probes.
-        probe_entity = _probe_entity_from_question(question)
-        if probe_entity:
-            entity_lower = probe_entity.lower()
-            key_nouns = [
-                tok
-                for tok in dense_terms
-                if tok.lower() not in {entity_lower, probe_entity.lower()}
-            ][:4]
-            probe_queries: list[str] = [probe_entity]
-            for noun in key_nouns[:3]:
-                probe_queries.append(f"{probe_entity} {noun}")
-            seen_probe: set[str] = set()
-            for pq in probe_queries:
-                if pq.lower() in seen_probe:
-                    continue
-                seen_probe.add(pq.lower())
-                for atom in self.store.search_atoms(pq, limit=3):
-                    rich_contexts.append(
-                        self._atom_to_search_result(
-                            atom, score=max(atom.salience, 0.62)
-                        ).model_dump()
-                    )
-
         rich_contexts = merge_contexts(rich_contexts, [])
+        rich_contexts.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
+        rich_contexts = rich_contexts[: max(limit * 3, 18)]
 
-        # Pull a wide person-scoped atom window ONLY when aggregate intent fires.
-        # Broader "needs_person_window" matching stole single-hop contexts and
-        # crashed full-suite single_hop from ~40 → ~25 F1.
-        agg_intent = detect_aggregate_intent(question)
-        person_atom_texts: list[str] = []
-        inventory_contexts: list[dict] = []
-        # Soft LLM-only person window is category-gated (XL23). Ungated prefixes
-        # hit single-hop (XL22: d1 single 32→27–29).
-        soft_person_texts: list[str] = []
-        # Drop inventory atoms from the general extractive/LLM pool unless a list
-        # aggregate intent is active. XL21's extra inv lines otherwise drown
-        # single/temporal spans (d1 single 32→29.5, temporal 25→23.5).
-        _list_inv_kinds = {
-            "inventory_union",
-            "activities",
-            "camp_places",
-            "kids_like",
-            "books",
-            "lgbtq_ways",
-            "lgbtq_events",
-            "help_children",
-            "painted_subjects",
-            "destress",
-            "instruments",
-            "pet_names",
-            "pottery_types",
-            "symbols",
-            "trans_events",
-            "bought_items",
-            "hike_family",
-            "artists_seen",
-            "transition_changes",
-            "supporters",
-            "both_painted",
-            "both_intersection",
-            "martial_arts",
-            "yoga_types",
-            "children_names",
-            "how_many",
-        }
-        if agg_intent is None or agg_intent.kind not in _list_inv_kinds:
-            rich_contexts = [
-                item
-                for item in rich_contexts
-                if not str(item.get("id") or "").startswith("atom:inv:")
-            ]
-        person = agg_intent.person if agg_intent else None
-        cat_l = (category or "").strip().lower()
-        # Soft person only for multi_hop. Open-domain soft prepend + wider ctx
-        # regressed full-suite open 33.92→31.88 (XL23).
-        if (
-            not person
-            and cat_l == "multi_hop"
-            and re.match(
-                r"^(?:who|why|how|can|what is something|what happened|"
-                r"what kind of|what is|which|where|do|does|did)\b",
-                question.lower(),
-            )
-        ):
-            soft = first_person(question) or probe_entity
-            if soft:
-                seen_soft: set[str] = set()
-                for atom in self.store.search_atoms(soft, limit=28):
-                    text = (atom.text or "").strip()
-                    key = text.lower()
-                    if not text or key in seen_soft:
-                        continue
-                    seen_soft.add(key)
-                    soft_person_texts.append(text)
-        if person:
-            for atom in self.store.search_atoms(person, limit=100):
-                if atom.text:
-                    person_atom_texts.append(atom.text)
-            topic = ((agg_intent.topic if agg_intent else None) or "").strip()
-            topic_bits = [t for t in re.findall(r"[a-z]{3,}", topic.lower()) if t][:4]
-            extra_queries = [
-                f"{person} profile",
-                f"{person} activities",
-                f"{person} books",
-                f"{person} painted",
-                f"{person} LGBTQ",
-                f"{person} relationship",
-                f"{person} places",
-                f"{person} desserts",
-                f"{person} games",
-                f"{person} causes",
-                f"{person} shelters",
-                f"{person} dogs",
-                f"{person} children",
-                f"{person} countries",
-                f"{person} states",
-                f"{person} exercises",
-                f"{person} martial arts",
-                f"{person} yoga",
-                f"{person} writing classes",
-                f"{person} board games",
-                f"{person} video games",
-                f"{person} game platforms",
-                f"{person} friend places",
-            ]
-            for bit in topic_bits:
-                extra_queries.append(f"{person} {bit}")
-            for extra_q in extra_queries:
-                for atom in self.store.search_atoms(extra_q, limit=8):
-                    if not atom.text:
-                        continue
-                    person_atom_texts.append(atom.text)
-                    # Compact inventory/profile cards may still help the LLM.
-                    if atom.id.startswith(("atom:inv:", "atom:profile:")) or any(
-                        marker in atom.text
-                        for marker in (
-                            " profile:",
-                            " activities:",
-                            " books read:",
-                            " painted:",
-                            " LGBTQ ",
-                            " relationship status:",
-                            " career:",
-                            " identity:",
-                            " places:",
-                            " items:",
-                            " hobbies:",
-                            " desserts:",
-                            " games:",
-                            " causes:",
-                            " shelters:",
-                            " dogs:",
-                            " children:",
-                            " countries:",
-                            " states:",
-                            " exercises:",
-                            " martial arts:",
-                            " yoga types:",
-                            " writing classes:",
-                            " board games:",
-                            " video games:",
-                            " game platforms:",
-                            " friend places:",
-                            " foods:",
-                            " hobbies:",
-                            " allergies:",
-                                " writings:",
-                                " music:",
-                                " inspiration:",
-                                " car work:",
-                                " studio offers:",
-                                " dreams:",
-                                " classes:",
-                                " bands:",
-                                " gifts:",
-                                " emotions:",
-                                " damages:",
-                                " accidents:",
-                                " events:",
-                                " music events:",
-                                " veteran events:",
-                                " fundraiser events:",
-                                " people helped:",
-                                " charity beneficiaries:",
-                                " submission places:",
-                                " meet places:",
-                                " meet plans:",
-                                " city places:",
-                                " gaming gear:",
-                                " programming events:",
-                                " health incidents:",
-                                " time management:",
-                                " engineering projects:",
-                                " dog items:",
-                                " passed away:",
-                                " indoor activities:",
-                                " outdoor activities:",
-                                " faith actions:",
-                                " us areas:",
-                                " yoga poses:",
-                                " peace places:",
-                                " painting subjects:",
-                                " fantasy movies:",
-                                " recipes:",
-                                " tokyo places:",
-                                " guitar styles:",
-                                " pet tricks:",
-                                " yoga places:",
-                                " collectibles:",
-                                " purchases:",
-                                " tv series:",
-                        )
-                    ):
-                        inventory_contexts.append(
-                            self._atom_to_search_result(
-                                atom, score=max(atom.salience, 0.72)
-                            ).model_dump()
-                        )
-        # Entity-infer OD probes often need cue atoms that person-name search
-        # misses (Xenoblade→Switch, chicken recipes, "fingers are too big").
-        if agg_intent and agg_intent.kind == "entity_infer":
-            topic_l = ((agg_intent.topic if agg_intent else None) or question).lower()
-            cue_searches: list[str] = []
-            if "console" in topic_l:
-                cue_searches.extend(["Xenoblade", "Nintendo Switch"])
-            if "meat" in topic_l:
-                cue_searches.extend(["chicken recipe", "Roasted Chicken"])
-            if "health problem" in topic_l:
-                cue_searches.extend(["fingers are too big", "take up exercise"])
-            if "bird" in topic_l:
-                cue_searches.extend(["birdwatching", "birds nature"])
-            if ("career" in topic_l or "job" in topic_l) and re.search(
-                r"\b(?:nature|animal|turtle|gaming)\b", topic_l
-            ):
-                cue_searches.extend(["nature hiking park", "turtles pets"])
-            if "time management" in topic_l or "pomodoro" in topic_l:
-                cue_searches.extend(["25 minutes studying exams"])
-            if "composer" in topic_l or "piano" in topic_l:
-                cue_searches.extend(["Harry Potter piano theme"])
-            if "endorsement" in topic_l or "outdoor gear" in topic_l:
-                cue_searches.extend(["Under Armour Nike Gatorade"])
-            if "yoga" in topic_l:
-                cue_searches.extend(["yoga strength flexibility"])
-            if "shop" in topic_l or "minalima" in topic_l:
-                cue_searches.extend(["MinaLima Harry Potter props"])
-            if "allerg" in topic_l or "condition" in topic_l:
-                cue_searches.extend(["allergic allergies pets"])
-            if "colored cards" in topic_l or re.search(r"\buno\b", topic_l):
-                cue_searches.extend(
-                    ["UNO colored cards game", "multi-colored cards numbers"]
-                )
-            if "imposter" in topic_l or "board game" in topic_l:
-                cue_searches.extend(
-                    ["Mafia imposter board game", "impostors friends game"]
-                )
-            if "discomfort" in topic_l or (
-                "pets" in topic_l and "wouldn" in topic_l
-            ):
-                cue_searches.extend(["allergic fur animals reptiles"])
-            if "ireland" in topic_l and "star wars" in topic_l:
-                cue_searches.extend(["Star Wars Ireland study abroad"])
-            seen_cue: set[str] = set()
-            for cq in cue_searches:
-                for atom in self.store.search_atoms(cq, limit=6):
-                    text = (atom.text or "").strip()
-                    key = text.lower()
-                    if not text or key in seen_cue:
-                        continue
-                    seen_cue.add(key)
-                    person_atom_texts.append(text)
+        use_local_llm = use_llm_from_env() if use_llm is None else use_llm
+        context_texts = [str(item.get("text") or "") for item in rich_contexts if item.get("text")]
 
-        retrieved_texts = [
-            str(item.get("text") or "")
-            for item in rich_contexts
-            if item.get("text")
-        ]
-        seen_ctx: set[str] = set()
-        dedup_texts: list[str] = []
-        for text in person_atom_texts + retrieved_texts:
-            key = text.strip().lower()
-            if key and key not in seen_ctx:
-                seen_ctx.add(key)
-                dedup_texts.append(text.strip())
-
-        aggregated = aggregate_answer(question, dedup_texts) if agg_intent else None
-        # Inventory unions must look like lists; never override single-hop spans
-        # with a one-token guess from a broad head match.
-        list_kinds = {
-            "inventory_union",
-            "activities",
-            "camp_places",
-            "kids_like",
-            "books",
-            "lgbtq_ways",
-            "lgbtq_events",
-            "help_children",
-            "painted_subjects",
-            "destress",
-            "instruments",
-            "pet_names",
-            "pottery_types",
-            "symbols",
-            "trans_events",
-            "bought_items",
-            "hike_family",
-            "artists_seen",
-            "transition_changes",
-            "supporters",
-            "both_painted",
-            "both_intersection",
-            "martial_arts",
-            "yoga_types",
-            "children_names",
-        }
-        short_kinds = {
-            "relationship_status",
-            "moved_from",
-            "identity",
-            "career",
-            "hypothetical",
-            "painted_recently",
-            "beach_count",
-            "children_count",
-            "duration",
-            "art_kind",
-            "research",
-            "political",
-            "personality",
-            "education_fields",
-            "how_many",
-            # entity_infer intentionally omitted from always-prefer: wrong catalog
-            # hits previously overrode good LLM OD answers (XL17 open 34.8→30.8).
-        }
-        prefer_aggregated = False
-        if aggregated and agg_intent is not None:
-            kind = agg_intent.kind
-            # High-precision specialized collectors always win when they fire.
-            always = short_kinds | {
-                "instruments",
-                "both_painted",
-                "both_intersection",
-                "artists_seen",
-                "pet_names",
-                "books",
-                "activities",
-                "camp_places",
-                "kids_like",
-                "pottery_types",
-                "lgbtq_ways",
-                "lgbtq_events",
-                "help_children",
-                "supporters",
-                "symbols",
-                "trans_events",
-                "bought_items",
-                "hike_family",
-                "transition_changes",
-                "destress",
-                "painted_subjects",
-                "painted_recently",
-                "martial_arts",
-                "yoga_types",
-                "children_names",
-            }
-            if kind in always:
-                prefer_aggregated = True
-            elif kind == "entity_infer":
-                # Prefer concrete entity_infer spans, including longer justified
-                # OD answers (Nintendo Switch / hairless pets / park ranger).
-                # Cap was 8 words and let Flan empty/placeholder override (XL28b).
-                prefer_aggregated = len(aggregated.split()) <= 28
-            elif kind in list_kinds:
-                prefer_aggregated = "," in aggregated or " and " in aggregated.lower()
-            elif "," in aggregated:
-                prefer_aggregated = True
-
-        should_use_llm = use_llm if use_llm is not None else use_llm_from_env()
-        # List-merge is ONLY for generic inventory_union. Specialized collectors
-        # (activities/books/lgbtq/…) must not be diluted by harvest∪LLM junk —
-        # that regressed dialog-1 multi-hop from ~66 → ~37.
-        inventory_evidence = any(
-            marker in text
-            for text in person_atom_texts
-            for marker in (
-                " activities:",
-                " places:",
-                " camp places:",
-                " books read:",
-                " painted:",
-                " LGBTQ participation:",
-                " profile:",
-                " items:",
-                " hobbies:",
-                " desserts:",
-                " games:",
-                " causes:",
-                " shelters:",
-                " dogs:",
-                " children:",
-                " countries:",
-                " states:",
-                " exercises:",
-                " martial arts:",
-                " yoga types:",
-                " writing classes:",
-                " board games:",
-                " video games:",
-                " game platforms:",
-                " friend places:",
-                " foods:",
-                " hobbies:",
-                " allergies:",
-                " writings:",
-                " music:",
-                " inspiration:",
-                " car work:",
-                " studio offers:",
-                " dreams:",
-                " classes:",
-                " bands:",
-                " gifts:",
-                " emotions:",
-                " damages:",
-                " accidents:",
-                " events:",
-                " pet tricks:",
-                " yoga places:",
-                " collectibles:",
-                " purchases:",
-                " tv series:",
-                " music events:",
-                " veteran events:",
-                " fundraiser events:",
-                " people helped:",
-                " charity beneficiaries:",
-                " submission places:",
-                " meet places:",
-                " faith actions:",
-                " us areas:",
-                " yoga poses:",
-                " peace places:",
-                " painting subjects:",
-                " fantasy movies:",
-                " recipes:",
-                " tokyo places:",
-                " guitar styles:",
-            )
-        )
-        # Require a real list signal. Bare ">=2 person atoms" previously forced the
-        # list LLM on weak inventory_union matches and tanked later-dialog multi/open
-        # (XL14: multi 27.3→25.8, open 34.8→32.5).
-        strong_list_shape = bool(
-            re.search(
-                r"\b(?:kinds? of|types? of|names of|what are some|"
-                r"in common|favorite (?:games|desserts|books)|"
-                r"what (?:are|were)\b.+\b(?:hobbies|allergies|writings|skills|"
-                r"dreams|foods|games)\b)",
-                question.lower(),
-            )
-        )
-        should_list_answer = bool(
-            agg_intent
-            and agg_intent.kind == "inventory_union"
-            and (
-                (aggregated and ("," in aggregated or " and " in aggregated.lower()))
-                or inventory_evidence
-                or strong_list_shape
-            )
-        )
-
-        if prefer_aggregated and aggregated and not should_list_answer:
-            # Short aggregates / strong deterministic lists win immediately.
-            answer_text = aggregated or ""
-        elif should_use_llm:
-            llm_pool = merge_contexts(rich_contexts, inventory_contexts)
-            # Prefer atomic / dialogue snippets first for the local answerer.
-            # Prefer atomic / dialogue snippets first for the local answerer.
-            # (XL19 tried hard-preferring atom:obs/evt/inv and regressed open
-            # 33.8→31.6 and overall 35.5→34.6 — keep the broader atomic tier.)
-            # XL26 turn-hard-prefer for multi/open regressed late-dialog multi;
-            # keep the broader atomic tier from XL18/XL21.
-            ordered = sorted(
-                [item for item in llm_pool if item.get("text")],
-                key=lambda item: (
-                    0
-                    if (
-                        str((item.get("provenance") or {}).get("source"))
-                        == "atomic-memory"
-                        or str(item.get("id") or "").startswith(("atom:", "turn:"))
-                        or str(item.get("text") or "").startswith("[D")
-                        or " profile:" in str(item.get("text") or "")
-                        or " activities:" in str(item.get("text") or "")
-                        or " items:" in str(item.get("text") or "")
-                    )
-                    else 1,
-                    -float(item.get("score") or 0.0),
-                ),
-            )
-            # For list QA, bias toward the wide person-atom window.
-            if should_list_answer and person_atom_texts:
-                list_contexts = []
-                seen_l: set[str] = set()
-                for text in person_atom_texts + [
-                    str(item.get("text") or "") for item in ordered
-                ]:
-                    key = text.strip().lower()
-                    if key and key not in seen_l:
-                        seen_l.add(key)
-                        list_contexts.append(text.strip())
-                context_texts = list_contexts[:28]
-            else:
-                ctx_limit = 22 if (agg_intent and agg_intent.kind in {"hypothetical", "entity_infer"}) else 14
-                context_texts = [str(item.get("text") or "")[:500] for item in ordered[:ctx_limit]]
-                # Prepend person facts for OD/inferential aggregates, or multi-only
-                # soft person window for none-intent multi-hop.
-                pref_source = person_atom_texts if (
-                    person_atom_texts
-                    and agg_intent
-                    and agg_intent.kind in {
-                        "hypothetical",
-                        "entity_infer",
-                        "career",
-                        "how_many",
-                    }
-                ) else (soft_person_texts if soft_person_texts and cat_l == "multi_hop" else [])
-                if pref_source:
-                    pref: list[str] = []
-                    seen_p: set[str] = set()
-                    for text in pref_source:
-                        if " profile:" in text and len(text) > 300:
-                            continue
-                        key = text.strip().lower()
-                        if not key or key in seen_p:
-                            continue
-                        seen_p.add(key)
-                        pref.append(text.strip()[:420])
-                        if len(pref) >= 10:
-                            break
-                    context_texts = (pref + context_texts)[: max(ctx_limit, 18)]
+        if use_local_llm and context_texts:
             try:
                 from .llm_answer import get_local_answerer
 
-                answerer = get_local_answerer()
-                if should_list_answer:
-                    head = (agg_intent.topic if agg_intent else None) or question
-                    # Prefer head-relevant contexts for the list LLM (less junk).
-                    head_terms = [
-                        t
-                        for t in re.findall(r"[a-z]{3,}", str(head).lower())
-                        if t
-                        not in {
-                            "what",
-                            "which",
-                            "where",
-                            "the",
-                            "and",
-                            "has",
-                            "have",
-                            "did",
-                            "does",
-                            "are",
-                            "was",
-                        }
-                    ]
-                    focused_contexts = [
-                        t
-                        for t in context_texts
-                        if not head_terms or any(term in t.lower() for term in head_terms)
-                    ]
-                    # Keep a person-atom fallback so the LLM still sees raw observations
-                    # when head-term filtering is too aggressive for later dialogs.
-                    if len(focused_contexts) < 6 and person_atom_texts:
-                        seen_f = {t.lower() for t in focused_contexts}
-                        for text in person_atom_texts:
-                            key = text.lower()
-                            if key in seen_f:
-                                continue
-                            # Prefer short observation / inventory lines over huge profiles.
-                            if " profile:" in text and len(text) > 400:
-                                continue
-                            focused_contexts.append(text)
-                            seen_f.add(key)
-                            if len(focused_contexts) >= 18:
-                                break
-                    if not focused_contexts:
-                        focused_contexts = context_texts
-
-                    # Structured inventory-line harvest only (high precision).
-                    inv_harvest: list[str] = []
-                    head_l = str(head).lower()
-                    for text in person_atom_texts:
-                        if ":" not in text:
-                            continue
-                        label, rhs = text.split(":", 1)
-                        label_l = label.lower()
-                        if any(term in label_l for term in head_terms) or any(
-                            term in label_l
-                            for term in (
-                                "desserts",
-                                "games",
-                                "places",
-                                "countries",
-                                "states",
-                                "causes",
-                                "shelters",
-                                "exercises",
-                                "martial",
-                                "yoga",
-                                "writing",
-                                "friend places",
-                                "dogs",
-                                "children",
-                                "activities",
-                                "books",
-                                "foods",
-                                "hobbies",
-                                "allergies",
-                                "writings",
-                                "music",
-                                "inspiration",
-                                "car work",
-                                "studio offers",
-                                "dreams",
-                                "classes",
-                                "bands",
-                                "gifts",
-                                "emotions",
-                                "damages",
-                                "accidents",
-                                "events",
-                                "pet tricks",
-                                "yoga places",
-                                "collectibles",
-                                "purchases",
-                                "tv series",
-                            )
-                            if term in head_l or any(t in term for t in head_terms)
-                        ):
-                            for part in re.split(r",|/|\||\band\b", rhs):
-                                cleaned = part.strip(" .,;:-\"'")
-                                if 2 <= len(cleaned) <= 40:
-                                    inv_harvest.append(cleaned)
-                    inv_harvest = filter_list_items_for_question(
-                        question, inv_harvest, head=str(head)
-                    )
-                    inv_text = ", ".join(inv_harvest[:8]) if inv_harvest else None
-
-                    # Always ask the instruct model for list synthesis on inventory_union;
-                    # weak generic harvest previously skipped the LLM and tanked later dialogs.
-                    llm_list = answerer.answer_list(question, focused_contexts[:20])
-                    llm_items = filter_list_items_for_question(
-                        question,
-                        [
-                            p.strip()
-                            for p in llm_list.replace(" and ", ", ").split(",")
-                            if p.strip()
-                        ]
-                        if llm_list
-                        else [],
-                        head=str(head),
-                    )
-                    llm_clean = ", ".join(llm_items) if llm_items else None
-                    answer_text = (
-                        merge_list_answers(aggregated, inv_text, llm_clean, limit=8)
-                        or llm_clean
-                        or inv_text
-                        or aggregated
-                        or ""
-                    )
-                else:
-                    answer_text = answerer.answer(question, context_texts)
+                answer_text = get_local_answerer().answer(question, context_texts[:18])
             except Exception as exc:
                 logger.warning("Local LLM answer failed, falling back to extractive: %s", exc)
-                answer_text = aggregated or synthesize_answer(question, rich_contexts)
-            if (not answer_text or answer_text.lower() == "i don't know") and aggregated:
-                answer_text = aggregated
-            elif prefer_aggregated and aggregated and not should_list_answer:
-                answer_text = aggregated
-            # If the LLM collapsed a what/which question into Likely yes/no, prefer
-            # a concrete entity aggregate when we have one.
-            elif (
-                aggregated
-                and agg_intent
-                and agg_intent.kind == "entity_infer"
-                and re.search(r"^(?:likely\s+)?(?:yes|no)\b", (answer_text or "").strip(), re.I)
-            ):
-                answer_text = aggregated
+                answer_text = synthesize_answer(question, rich_contexts)
         else:
-            if should_list_answer:
-                head = (agg_intent.topic if agg_intent else None) or question
-                harvested = filter_list_items_for_question(
-                    question,
-                    harvest_list_items(
-                        head,
-                        person_atom_texts or retrieved_texts,
-                        person=agg_intent.person if agg_intent else None,
-                    ),
-                    head=str(head),
-                )
-                answer_text = (
-                    merge_list_answers(
-                        aggregated, ", ".join(harvested) if harvested else None, limit=8
-                    )
-                    or aggregated
-                    or synthesize_answer(question, rich_contexts)
-                )
-            else:
-                answer_text = aggregated or synthesize_answer(question, rich_contexts)
+            answer_text = synthesize_answer(question, rich_contexts)
+
         return {
             "question": question,
             "answer": answer_text,
             "f1_text": f1_ready_text(answer_text),
-            "contexts_used": [item["text"] for item in rich_contexts],
+            "contexts_used": context_texts,
             "search": search_result,
-            "hop_entities": hop_entities,
+            "query_plan": plan.model_dump(),
+            "hop_entities": list(dict.fromkeys(hop_entities)),
             "hop_searches": hop_searches,
-            "aggregated": aggregated,
+            "aggregated": None,
         }
 
     def search(
@@ -1182,6 +318,7 @@ class MemoryRouter:
                 tags=tags,
                 memory_types=memory_types,
                 include_superseded=include_superseded,
+                project_path=project_path,
             ) if self._vector_ready else []
 
         def _keyword():
@@ -1208,6 +345,7 @@ class MemoryRouter:
                 limit=actual_limit,
                 memory_types=memory_types,
                 include_superseded=include_superseded,
+                project_path=project_path,
                 as_of=as_of,
                 prefer_older_valid_from=temporal_query,
             )
@@ -1231,7 +369,9 @@ class MemoryRouter:
             memory_types=memory_types,
             limit=actual_limit * 2,
         )
-        results = self._apply_salience_rerank(results)[:actual_limit]
+        results = self._apply_salience_rerank(results)
+        query_plan = plan_query(query, as_of=as_of)
+        results = rerank_candidates(query, results, query_plan)[:actual_limit]
 
         touched = [
             r.id for r in results
@@ -1251,6 +391,7 @@ class MemoryRouter:
             "results": [result.model_dump() for result in results],
             "graph_hits": graph_hits[:5],
             "atoms_considered": len(atom_results),
+            "query_plan": query_plan.model_dump(),
         }
 
     def bootstrap(self, task: str, project_path: str | None = None) -> dict:
@@ -1824,6 +965,7 @@ class MemoryRouter:
         force_supersede_query: str | None = None,
     ) -> dict:
         """Insert an atom, skipping exact duplicates and superseding contradictions."""
+        ensure_claim_metadata(atom)
         same_id = self.store.get_atom(atom.id)
         if same_id and same_id.is_active:
             same_id.access_count += 1
@@ -1855,7 +997,10 @@ class MemoryRouter:
                     candidates.append(item)
 
         for candidate in candidates:
-            score = contradiction_score(atom.text, candidate.text)
+            ensure_claim_metadata(candidate)
+            semantic_score = structured_conflict_score(atom, candidate)
+            lexical_score = contradiction_score(atom.text, candidate.text)
+            score = max(semantic_score, lexical_score)
             # Near-identical → treat as duplicate (reinforce old, don't create).
             if score >= 0.92 and contradiction_score(candidate.text, atom.text) >= 0.92:
                 if atom.text.strip().lower() == candidate.text.strip().lower():
@@ -1900,6 +1045,7 @@ class MemoryRouter:
         limit: int,
         memory_types: list[str] | None,
         include_superseded: bool,
+        project_path: str | None = None,
         as_of: str | None = None,
         prefer_older_valid_from: bool = False,
     ) -> list[SearchResult]:
@@ -1907,6 +1053,7 @@ class MemoryRouter:
             query,
             limit=limit if not prefer_older_valid_from else max(limit * 2, 16),
             memory_types=memory_types,
+            project_path=project_path,
             include_superseded=include_superseded,
             as_of=as_of,
         )
@@ -1950,6 +1097,7 @@ class MemoryRouter:
                 "access_count": atom.access_count,
                 "entities": atom.entities,
                 "project_path": atom.project_path,
+                "claim": atom.metadata.get("claim"),
             },
         )
 

@@ -49,25 +49,34 @@ Most agent memory tools give you a vector DB and call it a day: dump every messa
 
 ## Benchmarks
 
-Offline token-F1 against the [LoCoMo](https://github.com/snap-research/locomo) long-conversation QA benchmark, compared to A-MEM's reported GPT-4o-mini numbers (no paid LLM judge required):
+Ultimate Memory now has two benchmark tracks:
 
-| Category | Ultimate Memory | A-MEM | MemGPT | MemoryBank | ReadAgent |
-|---|---:|---:|---:|---:|---:|
-| single_hop | **39.82** ✓ | 27.02 | 26.65 | 5.00 | 9.15 |
-| temporal | **33.91** ✓ | 12.14 | 9.15 | 5.56 | 5.31 |
-| open_domain | **58.85** ✓ | 44.65 | 41.04 | 6.61 | 9.67 |
-| multi_hop | 36.59 | **45.85** | 25.52 ✓ | 9.68 ✓ | 12.60 ✓ |
+- **Clean protocol (recommended):** raw dialogue only, automatic query planning, no gold
+  category labels, no LoCoMo annotation summaries, and no benchmark-specific media/title
+  hints. Run with `uv run python evals/run_clean_benchmarks.py --quick` or without
+  `--quick` for the full suite.
+- **Historical XL track:** retained in `evals/run_benchmarks.py` and
+  `evals/RESULTS.md` for regression archaeology. Those historical numbers include
+  benchmark-specific tuning and must not be presented as a clean state-of-the-art claim.
 
-**Beats A-MEM on 3/4 categories**, beats MemGPT/MemoryBank/ReadAgent on all 4. Full history of every tuning pass (what worked, what regressed, why) is tracked in [`evals/RESULTS.md`](evals/RESULTS.md) — nothing is cherry-picked.
+The clean harness reports answer token-F1 and evidence recall separately. Retrieval-only
+metrics (Recall@K, reciprocal rank, nDCG@K) live in `evals/retrieval_metrics.py`.
 
-Run it yourself:
+The current production router no longer accepts benchmark categories as routing truth:
+`memory_plan(question)` infers temporal intent, memory type, and hop depth directly from
+the question.
 
-```bash
-uv run python evals/run_benchmarks.py --suite synthetic
-uv run python evals/run_benchmarks.py --suite locomo --quick
-```
+### v1 architecture direction
 
-The synthetic router suite alone scores **~93% token F1**, **100% constraint accuracy** on update / contradiction / preference / multi-hop / temporal probes — no LLM required.
+- structured subject/predicate/object claims stored inside atomic-memory metadata
+- semantic current-state conflict detection before lexical fallback heuristics
+- automatic multi-hop planning
+- project-scoped atomic and vector retrieval
+- benchmark-integrity CI
+- local-first fallback remains SQLite + FTS + Markdown; Qdrant/Neo4j stay optional
+- frozen XL30 baseline: branch `archive/xl30-baseline`
+
+See `docs/ARCHITECTURE_V1.md` for the invariants and clean-evaluation rules.
 
 ## Quick start
 

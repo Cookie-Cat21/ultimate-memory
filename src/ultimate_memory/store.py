@@ -349,6 +349,7 @@ class LocalStore:
         *,
         limit: int = 8,
         memory_types: list[str] | None = None,
+        project_path: str | None = None,
         include_superseded: bool = False,
         as_of: str | None = None,
     ) -> list[AtomicMemory]:
@@ -402,6 +403,8 @@ class LocalStore:
                 continue
             if allowed and atom.memory_type.value not in allowed:
                 continue
+            if project_path and atom.project_path not in (None, "", project_path):
+                continue
             atoms.append(atom)
             if len(atoms) >= limit:
                 break
@@ -446,6 +449,8 @@ class LocalStore:
         for candidate in extras:
             if candidate.id == atom.id or candidate.id in seen:
                 continue
+            if atom.project_path and candidate.project_path not in (None, "", atom.project_path):
+                continue
             merged.append(candidate)
             seen.add(candidate.id)
             if len(merged) >= limit:
@@ -457,6 +462,7 @@ class LocalStore:
                 hint,
                 limit=6,
                 memory_types=[atom.memory_type.value],
+                project_path=atom.project_path,
             ):
                 if found.id == atom.id or found.id in seen:
                     continue

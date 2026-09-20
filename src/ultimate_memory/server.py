@@ -7,6 +7,7 @@ from typing import Annotated
 from mcp.server.fastmcp import FastMCP
 
 from .models import ReflectionPayload
+from .planner import plan_query
 from .router import MemoryRouter
 
 mcp = FastMCP(
@@ -22,6 +23,12 @@ router = MemoryRouter()
 def memory_bootstrap(task: str, project_path: str | None = None) -> dict:
     """Return a compact context packet for a task before asking the user to re-explain."""
     return router.bootstrap(task=task, project_path=project_path)
+
+
+@mcp.tool()
+def memory_plan(question: str, as_of: str | None = None) -> dict:
+    """Explain the benchmark-agnostic retrieval plan inferred from a question."""
+    return plan_query(question, as_of=as_of).model_dump()
 
 
 @mcp.tool()
