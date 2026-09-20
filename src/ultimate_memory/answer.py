@@ -80,7 +80,13 @@ _ARTICLES = frozenset({"a", "an", "the"})
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 _ENTITY_RE = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b")
 _DATE_PATTERNS: list[re.Pattern[str]] = [
-    # Day Month Year: 7 May 2023
+    # Day Month Year, with optional comma: 7 May 2023 / 7 May, 2023
+    re.compile(
+        r"\b\d{1,2}\s+"
+        r"(?:January|February|March|April|May|June|July|August|September|"
+        r"October|November|December)(?:,\s*|\s+)\d{4}\b",
+        re.I,
+    ),
     re.compile(
         r"\b\d{1,2}\s+"
         r"(?:January|February|March|April|May|June|July|August|September|"
@@ -875,10 +881,7 @@ def synthesize_answer(
     occupation_question = _is_occupation_question(question)
     identity_question = _is_identity_question(question)
 
-    if _is_list_question(question):
-        list_answer = _list_answer(question, normalized, max_chars)
-        if list_answer:
-            return list_answer
+    list_question = _is_list_question(question)
 
     # For "when" questions, prefer contexts that actually contain date spans.
     if kind == "when":
@@ -1049,6 +1052,18 @@ def synthesize_answer(
             # Keep the head noun/tool name when the object is long.
             head = re.split(r"\s+for\s+|\s+as\s+", obj, maxsplit=1)[0].strip()
             return _truncate(head or obj, max_chars)
+
+    # Distributed/list questions may require evidence from multiple contexts.
+    # Only use aggregation when at least two distinct high-relevance sentences exist.
+    if list_question:
+        list_answer = _list_answer(question, normalized, max_chars)
+        if list_answer:
+            parts = _split_sentences(list_answer)
+            if len(parts) >= 2 or any(
+                cue in list_answer.lower()
+                for cue in ("visited", "trip to", "offer", "provid", "classes", "workshops", "training")
+            ):
+                return list_answer
 
     # Prefer a tight span when it still overlaps the question.
     answer = _strip_supersession_tail(best.text if best.score >= 0.2 and len(best.text) <= max_chars else best.sentence)
