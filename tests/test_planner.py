@@ -62,3 +62,10 @@ def test_generic_plural_history_query_uses_distributed_plan():
     assert plan_query("What martial arts has Alex done?").kind == "multi_hop"
     assert plan_query("What books has Alex read?").kind == "multi_hop"
     assert plan_query("Where has Alex camped?").kind == "multi_hop"
+
+
+def test_duration_between_events_uses_multi_evidence_plan():
+    plan = plan_query("How long did it take Alex to open the studio?")
+    assert plan.kind == "multi_hop"
+    assert plan.hop_depth >= 2
+    assert any("started" in expansion for expansion in plan.expansions)
