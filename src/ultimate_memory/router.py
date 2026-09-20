@@ -234,6 +234,33 @@ class MemoryRouter:
                 rich_contexts.append(neighbor_result)
                 neighbor_seen.add(neighbor.id)
 
+                anchor_text = str(anchor.get("text") or "").strip()
+                if "?" in anchor_text or "?" in neighbor.text:
+                    window_id = f"window:{session_id}:{dia_id}:{neighbor.metadata.get('dia_id', '')}"
+                    if window_id not in neighbor_seen:
+                        rich_contexts.append(
+                            {
+                                "id": window_id,
+                                "title": "conversation evidence window",
+                                "text": f"{anchor_text}\n{neighbor.text}",
+                                "source_path": window_id,
+                                "memory_type": "fact",
+                                "score": min(
+                                    float(anchor.get("score") or 0.0) + 0.03,
+                                    1.25,
+                                ),
+                                "provenance": {
+                                    "source": "conversation-window",
+                                    "conversation_neighbor": True,
+                                    "session_id": session_id,
+                                    "anchor_dia_id": dia_id,
+                                    "neighbor_dia_id": neighbor.metadata.get("dia_id"),
+                                    "project_path": project_path,
+                                },
+                            }
+                        )
+                        neighbor_seen.add(window_id)
+
         initial_results = search_result.get("results") or []
         seen_entity_keys = {normalize_entity(entity) for entity in plan.entities}
         frontier = extract_hop_entities(
