@@ -32,5 +32,8 @@ jobs:
       - name: Clean benchmark smoke test
         run: uv run python evals/run_clean_benchmarks.py --quick
 
+      - name: Clean benchmark holdout smoke test
+        run: uv run python evals/run_clean_benchmarks.py --start-dialog 1 --max-dialogs 1 --max-questions 40
+
       - name: Run tests
         run: uv run pytest tests/ -k "not Live" -q
