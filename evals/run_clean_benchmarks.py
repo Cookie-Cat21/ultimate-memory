@@ -104,8 +104,15 @@ def evidence_recall(contexts: list[str], evidence_ids: list[str], conversation: 
     return hits / len(evidence_ids)
 
 
-def run(*, max_dialogs: int | None = None, max_questions: int | None = None, use_llm: bool = False) -> dict:
+def run(
+    *,
+    start_dialog: int = 0,
+    max_dialogs: int | None = None,
+    max_questions: int | None = None,
+    use_llm: bool = False,
+) -> dict:
     data = json.loads((DATA / "locomo10.json").read_text(encoding="utf-8"))
+    data = data[max(start_dialog, 0):]
     if max_dialogs is not None:
         data = data[:max_dialogs]
 
@@ -173,6 +180,7 @@ def run(*, max_dialogs: int | None = None, max_questions: int | None = None, use
         "benchmark": "locomo10-clean",
         "protocol": "raw-dialogue-only/no-gold-category/no-annotation-summaries",
         "questions": asked,
+        "start_dialog": start_dialog,
         "elapsed_sec": round(time.perf_counter() - started, 3),
         "overall_token_f1": round(100 * sum(all_scores) / len(all_scores), 2) if all_scores else 0.0,
         "evidence_recall": round(100 * sum(evidence_scores) / len(evidence_scores), 2)
@@ -184,6 +192,7 @@ def run(*, max_dialogs: int | None = None, max_questions: int | None = None, use
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--start-dialog", type=int, default=0)
     parser.add_argument("--max-dialogs", type=int, default=None)
     parser.add_argument("--max-questions", type=int, default=None)
     parser.add_argument("--quick", action="store_true")
@@ -194,6 +203,7 @@ def main() -> None:
         args.max_questions = args.max_questions or 40
     RESULTS.mkdir(parents=True, exist_ok=True)
     report = run(
+        start_dialog=args.start_dialog,
         max_dialogs=args.max_dialogs,
         max_questions=args.max_questions,
         use_llm=args.llm,

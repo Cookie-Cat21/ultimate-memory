@@ -513,6 +513,17 @@ def _context_metadata_bonus(
     if provenance.get("hop"):
         bonus += 0.45
 
+    if provenance.get("chain_reachable"):
+        bonus += 0.14
+        bonus += min(0.28, 0.08 * int(provenance.get("chain_target_hits") or 0))
+        bonus += min(0.16, 0.04 * int(provenance.get("chain_max_depth") or 0))
+        if (
+            provenance.get("chain_min_depth") == 0
+            and int(provenance.get("chain_max_depth") or 0) == 0
+            and int(provenance.get("chain_target_hits") or 0) == 0
+        ):
+            bonus -= 0.26
+
     if item.memory_type in _PREFERRED_MEMORY_TYPES:
         bonus += 0.15
 
