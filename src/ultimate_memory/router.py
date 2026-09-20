@@ -23,7 +23,12 @@ from .chunking import chunk_text
 from .claims import ensure_claim_metadata, structured_conflict_score
 from .config import Settings, load_settings
 from .dates import parse_loose_date, resolve_relative_dates
-from .extraction import extract_from_transcript, parse_dialogue_turns, session_anchor_from_text
+from .extraction import (
+    extract_from_transcript,
+    extract_turn_entities,
+    parse_dialogue_turns,
+    session_anchor_from_text,
+)
 from .models import (
     AtomicMemory,
     AuditEvent,
@@ -773,6 +778,7 @@ class MemoryRouter:
                 query,
                 limit=limit,
                 memory_types=memory_types,
+                project_path=project_path,
                 include_superseded=include_superseded,
                 as_of=as_of,
             )
@@ -911,7 +917,7 @@ class MemoryRouter:
                         text=f"{turn.speaker}: {resolved}",
                         memory_type=MemoryType.FACT,
                         project_path=project_path,
-                        entities=[turn.speaker],
+                        entities=extract_turn_entities(turn.speaker, resolved),
                         source_refs=[f"session:{session_id}", f"turn:{turn.dia_id}"],
                         created_at=stamp,
                         valid_from=stamp,
